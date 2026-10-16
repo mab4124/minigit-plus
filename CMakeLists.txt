@@ -17,6 +17,7 @@ endif()
 # Core library: everything except main(), so tests can link against it.
 add_library(minigit_core
   src/cli.cpp
+  src/repository.cpp
 )
 target_include_directories(minigit_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(MSVC)
@@ -42,6 +43,7 @@ if(MINIGIT_BUILD_TESTS)
   enable_testing()
   add_executable(minigit_tests
     tests/cli_tests.cpp
+    tests/repository_tests.cpp
   )
   target_link_libraries(minigit_tests PRIVATE minigit_core GTest::gtest_main)
   include(GoogleTest)
