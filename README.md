@@ -1,0 +1,69 @@
+# MiniGit++
+
+An educational, Git-inspired version control system written in C++20.
+
+MiniGit++ reimplements a practical subset of Git from scratch (object storage,
+staging, commits, history, branches) to show how version control works
+internally. Later milestones add a small read-only history API and a
+file-history index, inspired by Anthropic's
+[Redesigning source control](https://www.anthropic.com/engineering/redesigning-source-control)
+article. It is a learning project, **not** a complete Git implementation.
+
+The original concepts come from
+[RivaanRanawat/git-clone-python](https://github.com/RivaanRanawat/git-clone-python).
+
+## Status
+
+Development follows the roadmap in [`docs/roadmap.md`](docs/roadmap.md).
+Currently implemented commands:
+
+| Command          | Description                    |
+|------------------|--------------------------------|
+| `minigit help`   | Show the list of commands      |
+| `minigit version`| Print the MiniGit++ version    |
+
+## Building
+
+Requirements:
+
+- A C++20 compiler (GCC 11+, Clang 14+)
+- CMake 3.20+ and Ninja
+- OpenSSL, zlib and SQLite development packages (needed by later milestones)
+
+GoogleTest is downloaded automatically by CMake.
+
+### Linux (Ubuntu)
+
+```sh
+sudo apt-get install ninja-build libssl-dev zlib1g-dev libsqlite3-dev
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+### Windows (MSYS2 UCRT64)
+
+```sh
+pacman -S mingw-w64-ucrt-x86_64-{gcc,cmake,ninja,openssl,zlib,sqlite3}
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+If you build from Git Bash instead of the MSYS2 shell, put
+`C:\msys64\ucrt64\bin` first on your `PATH`, otherwise the compiler can pick up
+incompatible DLLs and fail without an error message.
+
+### Sanitizers
+
+```sh
+cmake -S . -B build-asan -G Ninja -DMINIGIT_SANITIZE=ON
+```
+
+## Exit codes
+
+| Code | Meaning                                 |
+|------|-----------------------------------------|
+| 0    | Success                                 |
+| 1    | The command ran but failed              |
+| 2    | Invalid command line (usage error)      |
