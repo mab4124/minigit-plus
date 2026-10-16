@@ -83,6 +83,25 @@ TEST(Repository, MalformedHeadIsReported) {
   EXPECT_THROW(repo.head_ref(), RepositoryError);
 }
 
+TEST(InitCommand, PrintsMessageAndReinitializes) {
+  TempDir tmp;
+  const std::string dir = (tmp.path() / "proj").string();
+  std::ostringstream out, err;
+
+  EXPECT_EQ(minigit::run_cli({"init", dir}, out, err), minigit::kExitOk);
+  EXPECT_NE(out.str().find("Initialized empty MiniGit++ repository"), std::string::npos);
+
+  out.str("");
+  EXPECT_EQ(minigit::run_cli({"init", dir}, out, err), minigit::kExitOk);
+  EXPECT_NE(out.str().find("Reinitialized existing"), std::string::npos);
+  EXPECT_TRUE(err.str().empty());
+}
+
+TEST(InitCommand, TooManyArgumentsIsUsageError) {
+  std::ostringstream out, err;
+  EXPECT_EQ(minigit::run_cli({"init", "a", "b"}, out, err), minigit::kExitUsage);
+}
+
 // Real Git acts as an oracle: it must accept our layout as a repository.
 TEST(GitOracle, GitRecognizesInitializedRepository) {
   if (!minigit::test::git_available()) GTEST_SKIP() << "git not installed";

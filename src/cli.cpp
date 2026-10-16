@@ -1,5 +1,7 @@
 #include "minigit/cli.hpp"
 
+#include "minigit/repository.hpp"
+
 #include <exception>
 #include <functional>
 #include <ostream>
@@ -50,9 +52,23 @@ int cmd_version(CommandContext& ctx) {
   return kExitOk;
 }
 
+int cmd_init(CommandContext& ctx) {
+  if (ctx.args.size() > 1) {
+    ctx.err << "usage: minigit init [<directory>]\n";
+    return kExitUsage;
+  }
+  const fs::path target = ctx.args.empty() ? fs::current_path() : fs::path(ctx.args.front());
+  bool reinitialized = false;
+  const Repository repo = Repository::init(target, &reinitialized);
+  ctx.out << (reinitialized ? "Reinitialized existing" : "Initialized empty")
+          << " MiniGit++ repository in " << repo.git_dir().generic_string() << "/\n";
+  return kExitOk;
+}
+
 const std::vector<Command>& commands() {
   static const std::vector<Command> table = {
       {"help", "Show this help message", cmd_help},
+      {"init", "Create an empty repository", cmd_init},
       {"version", "Show the MiniGit++ version", cmd_version},
   };
   return table;

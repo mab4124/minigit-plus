@@ -20,6 +20,7 @@ Currently implemented commands:
 | Command          | Description                    |
 |------------------|--------------------------------|
 | `minigit help`   | Show the list of commands      |
+| `minigit init [dir]` | Create an empty repository |
 | `minigit version`| Print the MiniGit++ version    |
 
 ## Building
