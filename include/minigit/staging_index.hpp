@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace minigit {
 
@@ -56,6 +57,9 @@ class StagingIndex {
 
   // Removes `path`; returns false if it was not staged.
   bool remove(const std::string& path);
+
+  // Staged paths equal to `dir` or below it ("" means every path).
+  std::vector<std::string> paths_under(const std::string& dir) const;
 
   // The entry for `path`, or nullptr.
   const IndexEntry* find(const std::string& path) const;

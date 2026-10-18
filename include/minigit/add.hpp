@@ -19,6 +19,7 @@ class AddError : public std::runtime_error {
 
 struct AddResult {
   std::vector<std::string> staged;    // paths whose blob was (re)staged
+  std::vector<std::string> removed;   // tracked paths staged for deletion
   std::vector<std::string> warnings;  // e.g. skipped symbolic links
 };
 
@@ -26,6 +27,12 @@ struct AddResult {
 // `index`. Directories are walked recursively; any directory named ".git" is
 // skipped, and symbolic links and special files are skipped with a warning.
 // Only regular files are supported.
+//
+// Deletions are staged too: a pathspec naming a tracked file (or directory of
+// tracked files) that no longer exists removes it from the index, and walking
+// a directory removes tracked files below it that have disappeared. A
+// pathspec that matches neither a file on disk nor a tracked path is an
+// error.
 //
 // Every pathspec is validated before anything is staged, so a bad pathspec
 // leaves `index` unchanged. Blobs are written to the object store as files

@@ -114,6 +114,21 @@ void StagingIndex::stage(const std::string& path, IndexEntry entry) {
 
 bool StagingIndex::remove(const std::string& path) { return entries_.erase(path) > 0; }
 
+std::vector<std::string> StagingIndex::paths_under(const std::string& dir) const {
+  std::vector<std::string> paths;
+  if (dir.empty()) {
+    for (const auto& [path, entry] : entries_) paths.push_back(path);
+    return paths;
+  }
+  if (entries_.count(dir) != 0) paths.push_back(dir);
+  const std::string prefix = dir + '/';
+  for (auto it = entries_.lower_bound(prefix);
+       it != entries_.end() && it->first.compare(0, prefix.size(), prefix) == 0; ++it) {
+    paths.push_back(it->first);
+  }
+  return paths;
+}
+
 const IndexEntry* StagingIndex::find(const std::string& path) const {
   const auto it = entries_.find(path);
   return it == entries_.end() ? nullptr : &it->second;

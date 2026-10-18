@@ -274,6 +274,59 @@ TEST_F(AddTest, SymbolicLinksAreSkippedOrRejected) {
 }
 #endif
 
+TEST_F(AddTest, StagesDeletionOfRemovedFile) {
+  write_text(tmp.path() / "keep.txt", "k");
+  write_text(tmp.path() / "gone.txt", "g");
+  ASSERT_EQ(run({"add", "."}).code, minigit::kExitOk);
+  fs::remove(tmp.path() / "gone.txt");
+
+  const auto r = run({"add", "gone.txt"});
+  ASSERT_EQ(r.code, minigit::kExitOk) << r.err;
+  EXPECT_EQ(staged_paths(), std::vector<std::string>{"keep.txt"});
+
+  // Once unstaged it is no longer tracked, so naming it again is an error.
+  EXPECT_EQ(run({"add", "gone.txt"}).code, minigit::kExitError);
+}
+
+TEST_F(AddTest, StagesDeletionOfRemovedDirectory) {
+  write_text(tmp.path() / "lib" / "a.c", "a");
+  write_text(tmp.path() / "lib" / "sub" / "b.c", "b");
+  write_text(tmp.path() / "libx.c", "x");  // shares a prefix, must survive
+  ASSERT_EQ(run({"add", "."}).code, minigit::kExitOk);
+  fs::remove_all(tmp.path() / "lib");
+
+  ASSERT_EQ(run({"add", "lib"}).code, minigit::kExitOk);
+  EXPECT_EQ(staged_paths(), std::vector<std::string>{"libx.c"});
+}
+
+TEST_F(AddTest, WalkingDirectoryStagesDeletionsBelowIt) {
+  write_text(tmp.path() / "src" / "old.cpp", "old");
+  write_text(tmp.path() / "src" / "kept.cpp", "kept");
+  write_text(tmp.path() / "other.txt", "o");
+  ASSERT_EQ(run({"add", "."}).code, minigit::kExitOk);
+  fs::remove(tmp.path() / "src" / "old.cpp");
+  fs::remove(tmp.path() / "other.txt");
+  write_text(tmp.path() / "src" / "new.cpp", "new");
+
+  ASSERT_EQ(run({"add", "src"}).code, minigit::kExitOk);
+  // other.txt is outside the pathspec, so its deletion is not staged yet.
+  EXPECT_EQ(staged_paths(),
+            (std::vector<std::string>{"other.txt", "src/kept.cpp", "src/new.cpp"}));
+
+  ASSERT_EQ(run({"add", "."}).code, minigit::kExitOk);
+  EXPECT_EQ(staged_paths(), (std::vector<std::string>{"src/kept.cpp", "src/new.cpp"}));
+}
+
+TEST_F(AddTest, DeletionMixedWithMissingUntrackedPathStagesNothing) {
+  write_text(tmp.path() / "gone.txt", "g");
+  ASSERT_EQ(run({"add", "gone.txt"}).code, minigit::kExitOk);
+  fs::remove(tmp.path() / "gone.txt");
+  const auto r = run({"add", "gone.txt", "never-existed.txt"});
+  EXPECT_EQ(r.code, minigit::kExitError);
+  EXPECT_NE(r.err.find("pathspec 'never-existed.txt' did not match any files"), std::string::npos);
+  EXPECT_EQ(staged_paths(), std::vector<std::string>{"gone.txt"});
+}
+
 TEST_F(AddTest, UsageErrors) {
   EXPECT_EQ(run({"add"}).code, minigit::kExitUsage);
   EXPECT_EQ(run({"add", "-A"}).code, minigit::kExitUsage);

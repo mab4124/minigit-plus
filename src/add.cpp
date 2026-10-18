@@ -54,7 +54,8 @@ std::string join(const std::string& dir, const std::string& name) {
 
 class Adder {
  public:
-  Adder(const Repository& repo, StagingIndex& index) : store_(repo.objects_dir()), index_(index) {}
+  Adder(const Repository& repo, StagingIndex& index)
+      : worktree_(repo.worktree()), store_(repo.objects_dir()), index_(index) {}
 
   void add(const ResolvedPath& p) {
     std::error_code ec;
@@ -66,7 +67,8 @@ class Adder {
     } else if (fs::is_directory(st)) {
       add_directory(p.rel, p.abs);
     } else if (!fs::exists(st)) {
-      throw AddError("pathspec '" + p.spec + "' did not match any files");
+      // Pre-checked by add_paths: the path is tracked, so stage its deletion.
+      remove_missing(p.rel);
     } else {
       throw AddError("'" + p.spec + "' is not a regular file or directory");
     }
@@ -93,6 +95,17 @@ class Adder {
         result_.warnings.push_back("skipping special file '" + child + "'");
       }
     }
+    remove_missing(rel);
+  }
+
+  // Unstages tracked paths at or below `rel` that no longer exist on disk.
+  void remove_missing(const std::string& rel) {
+    for (const auto& path : index_.paths_under(rel)) {
+      std::error_code ec;
+      if (fs::exists(fs::symlink_status(worktree_ / fs::path(path), ec))) continue;
+      index_.remove(path);
+      result_.removed.push_back(path);
+    }
   }
 
   void stage_file(const std::string& rel, const fs::path& abs) {
@@ -111,6 +124,7 @@ class Adder {
 #endif
   }
 
+  fs::path worktree_;
   ObjectStore store_;
   StagingIndex& index_;
   AddResult result_;
@@ -127,9 +141,10 @@ AddResult add_paths(const Repository& repo, StagingIndex& index,
   StagingIndex updated = index;
   Adder adder(repo, updated);
   for (const auto& p : resolved) {
-    // Check every pathspec matches before doing any work.
+    // Check every pathspec matches something before doing any work: a file
+    // on disk, or a tracked path whose deletion should be staged.
     std::error_code ec;
-    if (!fs::exists(fs::symlink_status(p.abs, ec))) {
+    if (!fs::exists(fs::symlink_status(p.abs, ec)) && index.paths_under(p.rel).empty()) {
       throw AddError("pathspec '" + p.spec + "' did not match any files");
     }
   }

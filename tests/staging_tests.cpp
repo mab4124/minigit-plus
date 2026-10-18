@@ -78,6 +78,18 @@ TEST_F(StagingIndexTest, StageReplacesAndRemoves) {
   EXPECT_TRUE(index.empty());
 }
 
+TEST_F(StagingIndexTest, PathsUnderMatchesWholeComponents) {
+  StagingIndex index = StagingIndex::load(repo.index_path());
+  for (const char* p : {"a", "a.txt", "ab/c", "b/c/d", "b/e", "bc"}) {
+    index.stage(p, {"100644", kHelloBlob});
+  }
+  EXPECT_EQ(index.paths_under("a"), std::vector<std::string>{"a"});
+  EXPECT_EQ(index.paths_under("b"), (std::vector<std::string>{"b/c/d", "b/e"}));
+  EXPECT_EQ(index.paths_under("b/c"), std::vector<std::string>{"b/c/d"});
+  EXPECT_TRUE(index.paths_under("zzz").empty());
+  EXPECT_EQ(index.paths_under("").size(), 6u);
+}
+
 TEST_F(StagingIndexTest, FileAndDirectoryConflictsAreResolved) {
   StagingIndex index = StagingIndex::load(repo.index_path());
   index.stage("a", {"100644", kHelloBlob});

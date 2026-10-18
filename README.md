@@ -37,6 +37,9 @@ Currently implemented commands:
   while walking a directory are skipped with a warning, directories named
   `.git` are never entered, and paths outside the worktree or through a
   symbolic link are refused. File names containing a newline cannot be staged.
+- `add` stages deletions: naming a removed tracked file or directory, or adding
+  a directory whose tracked files have disappeared, unstages them. A tracked
+  file that was replaced by a symbolic link keeps its old staged entry.
 - The staging index is MiniGit++'s own text file (`.git/minigit/index`), not
   Git's binary `.git/index`, so `git status` does not see what MiniGit++ staged.
 - Annotated tag objects are not supported. Unknown commit headers (such as
