@@ -25,7 +25,7 @@ Rules for every commit:
 - [x] SHA-1 (OpenSSL) and zlib wrappers with RAII, linked through CMake `find_package`
 - [x] Object framing `<type> <size>\0<content>`, loose-object write/read in `.git/objects/xx/yyyy…`
 - [x] Blob, tree and commit serialization/parsing; validate hashes against `git hash-object` / `git cat-file`
-- [ ] `minigit hash-object [-w] <file>` and `minigit cat-file (-t|-s|-p) <oid>`; malformed-object errors
+- [x] `minigit hash-object [-w] <file>` and `minigit cat-file (-t|-s|-p) <oid>`; malformed-object errors
 
 ## Day 3 — 2026-10-18 · Milestone 4: staging
 

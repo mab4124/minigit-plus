@@ -93,6 +93,24 @@ inline CommandResult git_in(const std::filesystem::path& dir, const std::string&
   return r;
 }
 
+// Changes the working directory for the lifetime of the object. Safe in tests
+// because ctest runs each test case in its own process.
+class ScopedCwd {
+ public:
+  explicit ScopedCwd(const std::filesystem::path& dir) : old_(std::filesystem::current_path()) {
+    std::filesystem::current_path(dir);
+  }
+  ~ScopedCwd() {
+    std::error_code ec;
+    std::filesystem::current_path(old_, ec);
+  }
+  ScopedCwd(const ScopedCwd&) = delete;
+  ScopedCwd& operator=(const ScopedCwd&) = delete;
+
+ private:
+  std::filesystem::path old_;
+};
+
 // Sets an environment variable for the lifetime of the object (inherited by
 // git processes started with run_command), restoring the old value afterwards.
 class ScopedEnv {

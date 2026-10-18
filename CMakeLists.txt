@@ -53,6 +53,7 @@ if(MINIGIT_BUILD_TESTS)
   enable_testing()
   add_executable(minigit_tests
     tests/cli_tests.cpp
+    tests/command_tests.cpp
     tests/object_tests.cpp
     tests/repository_tests.cpp
   )

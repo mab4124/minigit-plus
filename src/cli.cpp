@@ -1,6 +1,10 @@
 #include "minigit/cli.hpp"
 
+#include "minigit/file_util.hpp"
+#include "minigit/hash.hpp"
+#include "minigit/object_store.hpp"
 #include "minigit/repository.hpp"
+#include "minigit/tree.hpp"
 
 #include <exception>
 #include <functional>
@@ -30,7 +34,7 @@ void print_usage(std::ostream& os) {
   os << "usage: minigit <command> [<args>]\n\nCommands:\n";
   for (const auto& cmd : commands()) {
     os << "  " << cmd.name;
-    for (auto i = cmd.name.size(); i < 10; ++i) os << ' ';
+    for (auto i = cmd.name.size(); i < 11; ++i) os << ' ';
     os << ' ' << cmd.summary << '\n';
   }
 }
@@ -65,8 +69,80 @@ int cmd_init(CommandContext& ctx) {
   return kExitOk;
 }
 
+int cmd_hash_object(CommandContext& ctx) {
+  bool write = false;
+  std::vector<std::string> files;
+  for (const auto& arg : ctx.args) {
+    if (arg == "-w") {
+      write = true;
+    } else if (!arg.empty() && arg.front() == '-') {
+      ctx.err << "minigit hash-object: unknown option '" << arg << "'\n";
+      return kExitUsage;
+    } else {
+      files.push_back(arg);
+    }
+  }
+  if (files.size() != 1) {
+    ctx.err << "usage: minigit hash-object [-w] <file>\n";
+    return kExitUsage;
+  }
+
+  // Files are hashed byte for byte: unlike Git, no line-ending or filter
+  // conversion is applied.
+  const std::string content = read_file(files.front());
+  if (write) {
+    // Only writing needs a repository, as with `git hash-object`.
+    const Repository repo = Repository::discover(fs::current_path());
+    ctx.out << ObjectStore(repo.objects_dir()).write(ObjectType::Blob, content) << '\n';
+  } else {
+    ctx.out << hash_object(ObjectType::Blob, content) << '\n';
+  }
+  return kExitOk;
+}
+
+// The type Git prints for a tree entry in `cat-file -p` output.
+std::string_view entry_type(const TreeEntry& entry) {
+  if (entry.is_tree()) return "tree";
+  if (entry.mode == kModeGitlink) return "commit";
+  return "blob";
+}
+
+int cmd_cat_file(CommandContext& ctx) {
+  if (ctx.args.size() != 2 ||
+      (ctx.args[0] != "-t" && ctx.args[0] != "-s" && ctx.args[0] != "-p")) {
+    ctx.err << "usage: minigit cat-file (-t | -s | -p) <object>\n";
+    return kExitUsage;
+  }
+  const std::string& flag = ctx.args[0];
+  const std::string& oid = ctx.args[1];
+  if (!is_valid_oid(oid)) {
+    // Abbreviated ids and ref names are not supported yet.
+    throw ObjectError("not a valid object name '" + oid + "' (expected a full 40-character id)");
+  }
+
+  const Repository repo = Repository::discover(fs::current_path());
+  const RawObject obj = ObjectStore(repo.objects_dir()).read(oid);
+  if (flag == "-t") {
+    ctx.out << to_string(obj.type) << '\n';
+  } else if (flag == "-s") {
+    ctx.out << obj.content.size() << '\n';
+  } else if (obj.type == ObjectType::Tree) {
+    for (const auto& entry : parse_tree(obj.content)) {
+      // Git pads modes to six digits here ("040000"), unlike inside the tree.
+      for (auto i = entry.mode.size(); i < 6; ++i) ctx.out << '0';
+      ctx.out << entry.mode << ' ' << entry_type(entry) << ' ' << entry.oid << '\t' << entry.name
+              << '\n';
+    }
+  } else {
+    ctx.out << obj.content;  // blobs and commits are printed verbatim
+  }
+  return kExitOk;
+}
+
 const std::vector<Command>& commands() {
   static const std::vector<Command> table = {
+      {"cat-file", "Show an object's type, size or contents", cmd_cat_file},
+      {"hash-object", "Compute a blob id, optionally storing it (-w)", cmd_hash_object},
       {"help", "Show this help message", cmd_help},
       {"init", "Create an empty repository", cmd_init},
       {"version", "Show the MiniGit++ version", cmd_version},

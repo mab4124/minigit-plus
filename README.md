@@ -17,11 +17,23 @@ The original concepts come from
 Development follows the roadmap in [`docs/roadmap.md`](docs/roadmap.md).
 Currently implemented commands:
 
-| Command          | Description                    |
-|------------------|--------------------------------|
-| `minigit help`   | Show the list of commands      |
-| `minigit init [dir]` | Create an empty repository |
-| `minigit version`| Print the MiniGit++ version    |
+| Command                                  | Description                                  |
+|------------------------------------------|----------------------------------------------|
+| `minigit cat-file (-t\|-s\|-p) <oid>`     | Show an object's type, size or contents      |
+| `minigit hash-object [-w] <file>`        | Compute a blob id; `-w` also stores the blob |
+| `minigit help`                           | Show the list of commands                    |
+| `minigit init [dir]`                     | Create an empty repository                   |
+| `minigit version`                        | Print the MiniGit++ version                  |
+
+### Current limitations
+
+- Only loose objects are read and written; pack files are not supported.
+- Object ids must be given in full (40 hex characters); abbreviations and
+  ref names are not accepted by `cat-file` yet.
+- `hash-object` hashes file bytes exactly; Git's line-ending and filter
+  conversions are not applied.
+- Annotated tag objects are not supported. Unknown commit headers (such as
+  `gpgsig`) are skipped when parsing commits written by Git.
 
 ## Building
 
