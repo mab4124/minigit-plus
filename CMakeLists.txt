@@ -20,11 +20,13 @@ find_package(ZLIB REQUIRED)
 # Core library: everything except main(), so tests can link against it.
 add_library(minigit_core
   src/cli.cpp
+  src/commit.cpp
   src/compression.cpp
   src/file_util.cpp
   src/hash.cpp
   src/object_store.cpp
   src/repository.cpp
+  src/tree.cpp
 )
 target_include_directories(minigit_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(minigit_core PRIVATE OpenSSL::Crypto ZLIB::ZLIB)

@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 
 namespace minigit::test {
@@ -91,5 +92,34 @@ inline CommandResult git_in(const std::filesystem::path& dir, const std::string&
   }
   return r;
 }
+
+// Sets an environment variable for the lifetime of the object (inherited by
+// git processes started with run_command), restoring the old value afterwards.
+class ScopedEnv {
+ public:
+  ScopedEnv(std::string name, const std::string& value) : name_(std::move(name)) {
+    if (const char* old = std::getenv(name_.c_str())) old_ = old;
+    set(value.c_str());
+  }
+  ~ScopedEnv() { set(old_ ? old_->c_str() : nullptr); }
+  ScopedEnv(const ScopedEnv&) = delete;
+  ScopedEnv& operator=(const ScopedEnv&) = delete;
+
+ private:
+  void set(const char* value) {
+#ifdef _WIN32
+    _putenv_s(name_.c_str(), value ? value : "");
+#else
+    if (value) {
+      setenv(name_.c_str(), value, 1);
+    } else {
+      unsetenv(name_.c_str());
+    }
+#endif
+  }
+
+  std::string name_;
+  std::optional<std::string> old_;
+};
 
 }  // namespace minigit::test
