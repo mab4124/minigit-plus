@@ -19,6 +19,7 @@ Currently implemented commands:
 
 | Command                                  | Description                                  |
 |------------------------------------------|----------------------------------------------|
+| `minigit add [--] <path>...`             | Stage files or directories for the next commit |
 | `minigit cat-file (-t\|-s\|-p) <oid>`     | Show an object's type, size or contents      |
 | `minigit hash-object [-w] <file>`        | Compute a blob id; `-w` also stores the blob |
 | `minigit help`                           | Show the list of commands                    |
@@ -32,6 +33,12 @@ Currently implemented commands:
   ref names are not accepted by `cat-file` yet.
 - `hash-object` hashes file bytes exactly; Git's line-ending and filter
   conversions are not applied.
+- `add` stages regular files only. Symbolic links and special files found
+  while walking a directory are skipped with a warning, directories named
+  `.git` are never entered, and paths outside the worktree or through a
+  symbolic link are refused. File names containing a newline cannot be staged.
+- The staging index is MiniGit++'s own text file (`.git/minigit/index`), not
+  Git's binary `.git/index`, so `git status` does not see what MiniGit++ staged.
 - Annotated tag objects are not supported. Unknown commit headers (such as
   `gpgsig`) are skipped when parsing commits written by Git.
 

@@ -19,6 +19,7 @@ find_package(ZLIB REQUIRED)
 
 # Core library: everything except main(), so tests can link against it.
 add_library(minigit_core
+  src/add.cpp
   src/cli.cpp
   src/commit.cpp
   src/compression.cpp

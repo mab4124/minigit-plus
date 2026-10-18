@@ -5,6 +5,7 @@
 #include "minigit/cli.hpp"
 #include "minigit/object_store.hpp"
 #include "minigit/repository.hpp"
+#include "minigit/staging_index.hpp"
 #include "minigit/tree.hpp"
 #include "test_support.hpp"
 
@@ -13,6 +14,7 @@ namespace {
 using minigit::ObjectStore;
 using minigit::ObjectType;
 using minigit::Repository;
+using minigit::StagingIndex;
 using minigit::test::git_available;
 using minigit::test::git_in;
 using minigit::test::ScopedCwd;
@@ -158,6 +160,136 @@ TEST_F(CommandTest, CatFileReportsMalformedObjects) {
   EXPECT_NE(r.err.find("fatal: tree entry"), std::string::npos);
   // -t and -s only need the header, so they still work.
   EXPECT_EQ(run({"cat-file", "-s", bad_tree}).out, "7\n");
+}
+
+// --- add ------------------------------------------------------------------------
+
+class AddTest : public CommandTest {
+ protected:
+  StagingIndex index() const { return StagingIndex::load(repo.index_path()); }
+
+  std::vector<std::string> staged_paths() const {
+    const StagingIndex staged = index();
+    std::vector<std::string> paths;
+    for (const auto& [path, entry] : staged.entries()) paths.push_back(path);
+    return paths;
+  }
+};
+
+TEST_F(AddTest, StagesSingleFileAndWritesBlob) {
+  write_text(tmp.path() / "hello.txt", "hello\n");
+  const auto r = run({"add", "hello.txt"});
+  ASSERT_EQ(r.code, minigit::kExitOk) << r.err;
+  EXPECT_TRUE(r.out.empty());
+  const StagingIndex staged = index();
+  const auto* entry = staged.find("hello.txt");
+  ASSERT_NE(entry, nullptr);
+  EXPECT_EQ(entry->oid, kHelloBlob);
+  EXPECT_EQ(entry->mode, "100644");
+  EXPECT_EQ(store.read(kHelloBlob).content, "hello\n");
+}
+
+TEST_F(AddTest, StagesMultipleFilesAndNestedDirectories) {
+  write_text(tmp.path() / "a.txt", "a");
+  write_text(tmp.path() / "b.txt", "b");
+  write_text(tmp.path() / "src" / "lib" / "deep.cpp", "deep");
+  write_text(tmp.path() / "src" / "main.cpp", "main");
+  ASSERT_EQ(run({"add", "a.txt", "b.txt", "src"}).code, minigit::kExitOk);
+  EXPECT_EQ(staged_paths(),
+            (std::vector<std::string>{"a.txt", "b.txt", "src/lib/deep.cpp", "src/main.cpp"}));
+}
+
+TEST_F(AddTest, DotStagesWholeWorktreeButSkipsGitDirectories) {
+  write_text(tmp.path() / "top.txt", "top");
+  write_text(tmp.path() / "vendor" / "lib" / ".git" / "HEAD", "nested repo");
+  write_text(tmp.path() / "vendor" / "lib" / "code.c", "code");
+  ASSERT_EQ(run({"add", "."}).code, minigit::kExitOk);
+  EXPECT_EQ(staged_paths(), (std::vector<std::string>{"top.txt", "vendor/lib/code.c"}));
+}
+
+TEST_F(AddTest, PathsAreRelativeToCurrentDirectory) {
+  write_text(tmp.path() / "sub" / "file.txt", "x");
+  write_text(tmp.path() / "root.txt", "r");
+  ScopedCwd in_sub(tmp.path() / "sub");
+  ASSERT_EQ(run({"add", "file.txt", "../root.txt"}).code, minigit::kExitOk);
+  EXPECT_EQ(staged_paths(), (std::vector<std::string>{"root.txt", "sub/file.txt"}));
+}
+
+TEST_F(AddTest, AbsolutePathInsideWorktreeIsAccepted) {
+  write_text(tmp.path() / "dir" / "f", "x");
+  ASSERT_EQ(run({"add", (tmp.path() / "dir" / "").string()}).code, minigit::kExitOk);
+  EXPECT_EQ(staged_paths(), std::vector<std::string>{"dir/f"});
+}
+
+TEST_F(AddTest, RejectsPathsOutsideWorktree) {
+  TempDir outside;
+  write_text(outside.path() / "secret.txt", "s");
+  for (const std::string spec : {(outside.path() / "secret.txt").string(), std::string("..")}) {
+    const auto r = run({"add", spec});
+    EXPECT_EQ(r.code, minigit::kExitError) << spec;
+    EXPECT_NE(r.err.find("outside the repository"), std::string::npos) << r.err;
+  }
+  EXPECT_FALSE(fs::exists(repo.index_path()));
+}
+
+TEST_F(AddTest, RejectsPathsInsideGitDirectory) {
+  for (const std::string spec : {".git", ".git/HEAD", "sub/../.git/config"}) {
+    const auto r = run({"add", spec});
+    EXPECT_EQ(r.code, minigit::kExitError) << spec;
+    EXPECT_NE(r.err.find("repository metadata"), std::string::npos) << r.err;
+  }
+}
+
+TEST_F(AddTest, InvalidPathspecStagesNothing) {
+  write_text(tmp.path() / "good.txt", "g");
+  ASSERT_EQ(run({"add", "good.txt", ".."}).code, minigit::kExitError);
+  EXPECT_FALSE(fs::exists(repo.index_path()));
+}
+
+#ifndef _WIN32
+TEST_F(AddTest, ExecutableBitBecomesMode100755) {
+  write_text(tmp.path() / "run.sh", "#!/bin/sh\n");
+  fs::permissions(tmp.path() / "run.sh", fs::perms::owner_exec, fs::perm_options::add);
+  ASSERT_EQ(run({"add", "run.sh"}).code, minigit::kExitOk);
+  ASSERT_NE(index().find("run.sh"), nullptr);
+  EXPECT_EQ(index().find("run.sh")->mode, "100755");
+}
+
+TEST_F(AddTest, SymbolicLinksAreSkippedOrRejected) {
+  TempDir outside;
+  write_text(outside.path() / "target.txt", "t");
+  write_text(tmp.path() / "dir" / "real.txt", "r");
+  fs::create_symlink(outside.path() / "target.txt", tmp.path() / "dir" / "link.txt");
+  fs::create_directory_symlink(outside.path(), tmp.path() / "outlink");
+
+  const auto dir = run({"add", "dir"});
+  ASSERT_EQ(dir.code, minigit::kExitOk) << dir.err;
+  EXPECT_NE(dir.err.find("warning: skipping symbolic link 'dir/link.txt'"), std::string::npos);
+  EXPECT_EQ(staged_paths(), std::vector<std::string>{"dir/real.txt"});
+
+  EXPECT_EQ(run({"add", "dir/link.txt"}).code, minigit::kExitError);
+  const auto through = run({"add", "outlink/target.txt"});
+  EXPECT_EQ(through.code, minigit::kExitError);
+  EXPECT_NE(through.err.find("beyond a symbolic link"), std::string::npos) << through.err;
+}
+#endif
+
+TEST_F(AddTest, UsageErrors) {
+  EXPECT_EQ(run({"add"}).code, minigit::kExitUsage);
+  EXPECT_EQ(run({"add", "-A"}).code, minigit::kExitUsage);
+  write_text(tmp.path() / "-dash", "d");
+  ASSERT_EQ(run({"add", "--", "-dash"}).code, minigit::kExitOk);
+  EXPECT_NE(index().find("-dash"), nullptr);
+}
+
+TEST(AddCommand, OutsideRepositoryFails) {
+  TempDir tmp;
+  if (fs::exists(tmp.path().parent_path() / ".git")) GTEST_SKIP() << "temp dir inside a repo";
+  ScopedCwd cwd(tmp.path());
+  write_text(tmp.path() / "f", "x");
+  const auto r = run({"add", "f"});
+  EXPECT_EQ(r.code, minigit::kExitError);
+  EXPECT_NE(r.err.find("not a minigit repository"), std::string::npos);
 }
 
 }  // namespace

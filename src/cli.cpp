@@ -1,9 +1,11 @@
 #include "minigit/cli.hpp"
 
+#include "minigit/add.hpp"
 #include "minigit/file_util.hpp"
 #include "minigit/hash.hpp"
 #include "minigit/object_store.hpp"
 #include "minigit/repository.hpp"
+#include "minigit/staging_index.hpp"
 #include "minigit/tree.hpp"
 
 #include <exception>
@@ -139,8 +141,36 @@ int cmd_cat_file(CommandContext& ctx) {
   return kExitOk;
 }
 
+int cmd_add(CommandContext& ctx) {
+  std::vector<std::string> pathspecs;
+  bool options_done = false;
+  for (const auto& arg : ctx.args) {
+    if (!options_done && arg == "--") {
+      options_done = true;
+    } else if (!options_done && !arg.empty() && arg.front() == '-') {
+      ctx.err << "minigit add: unknown option '" << arg << "'\n";
+      return kExitUsage;
+    } else {
+      pathspecs.push_back(arg);
+    }
+  }
+  if (pathspecs.empty()) {
+    ctx.err << "usage: minigit add [--] <path>...\nNothing specified, nothing added.\n";
+    return kExitUsage;
+  }
+
+  const fs::path cwd = fs::current_path();
+  const Repository repo = Repository::discover(cwd);
+  StagingIndex index = StagingIndex::load(repo.index_path());
+  const AddResult result = add_paths(repo, index, pathspecs, cwd);
+  for (const auto& warning : result.warnings) ctx.err << "warning: " << warning << '\n';
+  index.save();  // only reached if every pathspec was staged successfully
+  return kExitOk;
+}
+
 const std::vector<Command>& commands() {
   static const std::vector<Command> table = {
+      {"add", "Stage file contents for the next commit", cmd_add},
       {"cat-file", "Show an object's type, size or contents", cmd_cat_file},
       {"hash-object", "Compute a blob id, optionally storing it (-w)", cmd_hash_object},
       {"help", "Show this help message", cmd_help},
