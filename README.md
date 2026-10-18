@@ -29,7 +29,8 @@ Requirements:
 
 - A C++20 compiler (GCC 11+, Clang 14+)
 - CMake 3.20+ and Ninja
-- OpenSSL, zlib and SQLite development packages (needed by later milestones)
+- OpenSSL (SHA-1) and zlib (object compression) development packages
+- SQLite development package (needed by a later milestone)
 
 GoogleTest is downloaded automatically by CMake.
 

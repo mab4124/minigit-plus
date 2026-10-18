@@ -22,7 +22,7 @@ Rules for every commit:
 
 ## Day 2 — 2026-10-17 · Milestone 3: Git objects
 
-- [ ] SHA-1 (OpenSSL) and zlib wrappers with RAII, linked through CMake `find_package`
+- [x] SHA-1 (OpenSSL) and zlib wrappers with RAII, linked through CMake `find_package`
 - [ ] Object framing `<type> <size>\0<content>`, loose-object write/read in `.git/objects/xx/yyyy…`
 - [ ] Blob, tree and commit serialization/parsing; validate hashes against `git hash-object` / `git cat-file`
 - [ ] `minigit hash-object [-w] <file>` and `minigit cat-file (-t|-s|-p) <oid>`; malformed-object errors
