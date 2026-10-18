@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -50,6 +51,45 @@ inline bool git_available() {
 #else
   return std::system("git --version > /dev/null 2>&1") == 0;
 #endif
+}
+
+// Wraps a path in double quotes for use in a shell command line.
+inline std::string quote(const std::filesystem::path& path) { return "\"" + path.string() + "\""; }
+
+struct CommandResult {
+  int status;          // 0 on success
+  std::string output;  // captured stdout
+};
+
+// Runs a shell command (used only to drive the real `git` oracle) and
+// captures its standard output.
+inline CommandResult run_command(const std::string& command) {
+#ifdef _WIN32
+  FILE* pipe = _popen(command.c_str(), "rb");
+#else
+  FILE* pipe = popen(command.c_str(), "r");
+#endif
+  if (pipe == nullptr) return {-1, {}};
+  std::string output;
+  char buffer[4096];
+  std::size_t n = 0;
+  while ((n = std::fread(buffer, 1, sizeof(buffer), pipe)) > 0) output.append(buffer, n);
+#ifdef _WIN32
+  const int status = _pclose(pipe);
+#else
+  const int status = pclose(pipe);
+#endif
+  return {status, output};
+}
+
+// Runs `git -C <dir> <args>` and returns its stdout without trailing newlines.
+// Callers should check `status` before trusting the output.
+inline CommandResult git_in(const std::filesystem::path& dir, const std::string& args) {
+  CommandResult r = run_command("git -C " + quote(dir) + " " + args);
+  while (!r.output.empty() && (r.output.back() == '\n' || r.output.back() == '\r')) {
+    r.output.pop_back();
+  }
+  return r;
 }
 
 }  // namespace minigit::test
