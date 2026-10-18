@@ -32,7 +32,7 @@ Rules for every commit:
 - [x] `StagingIndex` (path → blob id, mode) persisted under `.git/minigit/index` (text format, atomic write via temp file + rename)
 - [x] `minigit add <path>...` for files and directories; skip `.git`; reject paths outside the worktree
 - [x] Staging of deletions (`add` on a removed tracked path)
-- [ ] Tests: repeated staging, empty files, binary files, spaces in names, missing paths, restart persistence
+- [x] Tests: repeated staging, empty files, binary files, spaces in names, missing paths, restart persistence
 
 ## Day 4 — 2026-10-19 · Milestones 5–6: trees and commits
 

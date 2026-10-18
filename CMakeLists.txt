@@ -61,6 +61,9 @@ if(MINIGIT_BUILD_TESTS)
     tests/staging_tests.cpp
   )
   target_link_libraries(minigit_tests PRIVATE minigit_core GTest::gtest_main)
+  # Some tests run the real executable to prove state survives a restart.
+  target_compile_definitions(minigit_tests PRIVATE MINIGIT_EXE="$<TARGET_FILE:minigit>")
+  add_dependencies(minigit_tests minigit)
   include(GoogleTest)
   gtest_discover_tests(minigit_tests DISCOVERY_TIMEOUT 30)
 endif()

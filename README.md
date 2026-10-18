@@ -40,6 +40,8 @@ Currently implemented commands:
 - `add` stages deletions: naming a removed tracked file or directory, or adding
   a directory whose tracked files have disappeared, unstages them. A tracked
   file that was replaced by a symbolic link keeps its old staged entry.
+- Non-ASCII file names are stored as their raw UTF-8 bytes on Linux/macOS; on
+  Windows they currently go through the narrow code page and are not tested.
 - The staging index is MiniGit++'s own text file (`.git/minigit/index`), not
   Git's binary `.git/index`, so `git status` does not see what MiniGit++ staged.
 - Annotated tag objects are not supported. Unknown commit headers (such as

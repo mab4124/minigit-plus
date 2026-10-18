@@ -3,6 +3,7 @@
 #include <sstream>
 
 #include "minigit/cli.hpp"
+#include "minigit/hash.hpp"
 #include "minigit/object_store.hpp"
 #include "minigit/repository.hpp"
 #include "minigit/staging_index.hpp"
@@ -325,6 +326,120 @@ TEST_F(AddTest, DeletionMixedWithMissingUntrackedPathStagesNothing) {
   EXPECT_EQ(r.code, minigit::kExitError);
   EXPECT_NE(r.err.find("pathspec 'never-existed.txt' did not match any files"), std::string::npos);
   EXPECT_EQ(staged_paths(), std::vector<std::string>{"gone.txt"});
+}
+
+// --- add edge cases ----------------------------------------------------------------
+
+TEST_F(AddTest, RepeatedStagingTracksLatestContent) {
+  write_text(tmp.path() / "f.txt", "hello\n");
+  ASSERT_EQ(run({"add", "f.txt"}).code, minigit::kExitOk);
+  const std::string first_index = minigit::test::read_text(repo.index_path());
+
+  // Re-adding unchanged content is a no-op on disk.
+  ASSERT_EQ(run({"add", "f.txt"}).code, minigit::kExitOk);
+  EXPECT_EQ(minigit::test::read_text(repo.index_path()), first_index);
+
+  write_text(tmp.path() / "f.txt", "changed\n");
+  ASSERT_EQ(run({"add", "f.txt", "f.txt", "."}).code, minigit::kExitOk);
+  const StagingIndex staged = index();
+  EXPECT_EQ(staged.entries().size(), 1u);
+  const std::string new_oid = staged.find("f.txt")->oid;
+  EXPECT_EQ(new_oid, minigit::hash_object(ObjectType::Blob, "changed\n"));
+  // Objects are immutable: the previously staged blob is still readable.
+  EXPECT_EQ(store.read(kHelloBlob).content, "hello\n");
+  EXPECT_EQ(store.read(new_oid).content, "changed\n");
+}
+
+TEST_F(AddTest, EmptyFilesAndEmptyDirectories) {
+  write_text(tmp.path() / "empty.txt", "");
+  fs::create_directories(tmp.path() / "hollow" / "deeper");
+  ASSERT_EQ(run({"add", "empty.txt", "hollow"}).code, minigit::kExitOk);
+  // Like Git, empty directories are not tracked.
+  EXPECT_EQ(staged_paths(), std::vector<std::string>{"empty.txt"});
+  EXPECT_EQ(index().find("empty.txt")->oid, "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");
+  EXPECT_EQ(store.read("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").content, "");
+}
+
+TEST_F(AddTest, BinaryFilesAreStoredByteForByte) {
+  std::string binary("\0\x01\xff\xfe\r\n\n\r\x7f", 9);
+  for (int i = 0; i < 70000; ++i) binary.push_back(static_cast<char>((i * 131) % 256));
+  write_text(tmp.path() / "image.bin", binary);
+  ASSERT_EQ(run({"add", "image.bin"}).code, minigit::kExitOk);
+  const std::string oid = index().find("image.bin")->oid;
+  EXPECT_EQ(store.read(oid).content, binary);
+
+  if (!git_available()) GTEST_SKIP() << "git not installed";
+  const auto expected = git_in(tmp.path(), "hash-object image.bin");
+  ASSERT_EQ(expected.status, 0);
+  EXPECT_EQ(oid, expected.output);
+}
+
+TEST_F(AddTest, NamesWithSpacesAndUnicodeSurviveReload) {
+  std::vector<std::string> names = {"my file.txt", "dir with space/inner file.md", " leading",
+                                    "semi;colon#hash"};
+#ifndef _WIN32
+  // UTF-8 names are only byte-transparent where paths are narrow strings.
+  names.push_back("u\xC3\xBCnic\xC3\xB6" "de.txt");
+#endif
+  for (const auto& name : names) write_text(tmp.path() / name, name);
+  ASSERT_EQ(run({"add", "."}).code, minigit::kExitOk);
+
+  const StagingIndex staged = index();
+  ASSERT_EQ(staged.entries().size(), names.size());
+  for (const auto& name : names) {
+    const auto* entry = staged.find(name);
+    ASSERT_NE(entry, nullptr) << name;
+    EXPECT_EQ(store.read(entry->oid).content, name);
+  }
+}
+
+#ifndef _WIN32
+TEST_F(AddTest, NewlineInFileNameIsRejected) {
+  write_text(tmp.path() / "ok.txt", "ok");
+  write_text(tmp.path() / "bad\nname", "x");
+  const auto r = run({"add", "."});
+  EXPECT_EQ(r.code, minigit::kExitError);
+  EXPECT_NE(r.err.find("newline"), std::string::npos) << r.err;
+  EXPECT_FALSE(fs::exists(repo.index_path()));
+}
+#endif
+
+TEST_F(AddTest, MissingPathsAreReportedAndIndexIsUnchanged) {
+  write_text(tmp.path() / "real.txt", "r");
+  ASSERT_EQ(run({"add", "real.txt"}).code, minigit::kExitOk);
+  const std::string before = minigit::test::read_text(repo.index_path());
+
+  write_text(tmp.path() / "new.txt", "n");
+  for (const std::string spec : {"nope.txt", "no/such/dir", "real.txt/child"}) {
+    const auto r = run({"add", "new.txt", spec});
+    EXPECT_EQ(r.code, minigit::kExitError) << spec;
+    EXPECT_NE(r.err.find("pathspec '" + spec + "' did not match any files"), std::string::npos)
+        << r.err;
+  }
+  EXPECT_EQ(minigit::test::read_text(repo.index_path()), before);
+}
+
+// Runs the real minigit executable in `dir`, as a fresh process.
+minigit::test::CommandResult run_exe(const fs::path& dir, const std::string& args) {
+  return minigit::test::run_command("cd " + minigit::test::quote(dir) + " && " +
+                                    minigit::test::quote(MINIGIT_EXE) + " " + args);
+}
+
+TEST_F(AddTest, StagedContentSurvivesRestart) {
+  write_text(tmp.path() / "a.txt", "hello\n");
+  write_text(tmp.path() / "docs" / "b.md", "b");
+  ASSERT_EQ(run_exe(tmp.path(), "add a.txt").status, 0);
+  ASSERT_EQ(run_exe(tmp.path() / "docs", "add b.md").status, 0);
+
+  // A third process sees both, and can read the staged blob back.
+  EXPECT_EQ(staged_paths(), (std::vector<std::string>{"a.txt", "docs/b.md"}));
+  const auto cat = run_exe(tmp.path(), std::string("cat-file -p ") + kHelloBlob);
+  ASSERT_EQ(cat.status, 0);
+  EXPECT_EQ(cat.output, "hello\n");
+
+  fs::remove(tmp.path() / "a.txt");
+  ASSERT_EQ(run_exe(tmp.path(), "add a.txt").status, 0);
+  EXPECT_EQ(staged_paths(), std::vector<std::string>{"docs/b.md"});
 }
 
 TEST_F(AddTest, UsageErrors) {
