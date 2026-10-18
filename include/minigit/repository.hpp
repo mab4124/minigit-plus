@@ -46,6 +46,7 @@ class Repository {
   fs::path objects_dir() const { return git_dir() / "objects"; }
   fs::path refs_dir() const { return git_dir() / "refs"; }
   fs::path minigit_dir() const { return git_dir() / "minigit"; }
+  fs::path index_path() const { return minigit_dir() / "index"; }
 
   // Contents of HEAD, e.g. "refs/heads/main" for a symbolic HEAD.
   // Throws RepositoryError if HEAD is missing or malformed.

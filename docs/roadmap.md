@@ -29,7 +29,7 @@ Rules for every commit:
 
 ## Day 3 — 2026-10-18 · Milestone 4: staging
 
-- [ ] `StagingIndex` (path → blob id, mode) persisted under `.git/minigit/index` (text format, atomic write via temp file + rename)
+- [x] `StagingIndex` (path → blob id, mode) persisted under `.git/minigit/index` (text format, atomic write via temp file + rename)
 - [ ] `minigit add <path>...` for files and directories; skip `.git`; reject paths outside the worktree
 - [ ] Staging of deletions (`add` on a removed tracked path)
 - [ ] Tests: repeated staging, empty files, binary files, spaces in names, missing paths, restart persistence
