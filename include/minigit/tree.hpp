@@ -6,6 +6,9 @@
 
 namespace minigit {
 
+class ObjectStore;
+class StagingIndex;
+
 // File modes as Git writes them in tree objects (note: no leading zero on
 // directories). MiniGit++ creates only the first three; the others are
 // accepted when parsing trees written by real Git.
@@ -37,5 +40,12 @@ std::string serialize_tree(std::vector<TreeEntry> entries);
 // Parses tree content (without the object header). Throws ObjectError if the
 // data is truncated or an entry is invalid.
 std::vector<TreeEntry> parse_tree(std::string_view content);
+
+// Writes the staged snapshot as tree objects: one tree per directory, each
+// subtree written before its parent, and returns the root tree's id. An
+// empty index yields Git's empty tree (4b825dc6...). Only directories that
+// contain staged files appear, since Git trees cannot record empty
+// directories. Blobs are assumed to be in `store` already (`add` writes them).
+std::string write_tree_from_index(const ObjectStore& store, const StagingIndex& index);
 
 }  // namespace minigit

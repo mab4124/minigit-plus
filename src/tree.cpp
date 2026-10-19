@@ -1,9 +1,11 @@
 #include "minigit/tree.hpp"
 
 #include <algorithm>
+#include <map>
 
 #include "minigit/hash.hpp"
 #include "minigit/object_store.hpp"
+#include "minigit/staging_index.hpp"
 
 namespace minigit {
 namespace {
@@ -28,6 +30,36 @@ void validate_entry(const TreeEntry& entry) {
 
 std::string sort_key(const TreeEntry& entry) {
   return entry.is_tree() ? entry.name + '/' : entry.name;
+}
+
+using IndexIterator = std::map<std::string, IndexEntry>::const_iterator;
+
+// Writes the tree for the index entries in [first, last), which all start
+// with the same `prefix_len`-byte prefix (empty for the root, otherwise
+// "dir/"). The index is sorted, so all keys sharing a "dir/sub/" prefix form
+// one contiguous run that can be handed to the recursive call.
+std::string write_subtree(const ObjectStore& store, IndexIterator first, IndexIterator last,
+                          std::size_t prefix_len) {
+  std::vector<TreeEntry> entries;
+  while (first != last) {
+    const std::string_view rest = std::string_view(first->first).substr(prefix_len);
+    const auto slash = rest.find('/');
+    if (slash == std::string_view::npos) {
+      entries.push_back({first->second.mode, std::string(rest), first->second.oid});
+      ++first;
+      continue;
+    }
+    const std::string dir_name(rest.substr(0, slash));
+    const std::string dir_prefix = first->first.substr(0, prefix_len + slash + 1);
+    auto end = first;
+    while (end != last && end->first.compare(0, dir_prefix.size(), dir_prefix) == 0) ++end;
+    entries.push_back(
+        {std::string(kModeTree), dir_name, write_subtree(store, first, end, dir_prefix.size())});
+    first = end;
+  }
+  // serialize_tree sorts into Git's order (directories compare as "name/"),
+  // so correctness does not depend on the order entries were collected in.
+  return store.write(ObjectType::Tree, serialize_tree(std::move(entries)));
 }
 
 }  // namespace
@@ -77,6 +109,10 @@ std::vector<TreeEntry> parse_tree(std::string_view content) {
     pos = nul + 1 + kSha1RawSize;
   }
   return entries;
+}
+
+std::string write_tree_from_index(const ObjectStore& store, const StagingIndex& index) {
+  return write_subtree(store, index.entries().begin(), index.entries().end(), 0);
 }
 
 }  // namespace minigit

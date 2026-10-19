@@ -59,6 +59,7 @@ if(MINIGIT_BUILD_TESTS)
     tests/object_tests.cpp
     tests/repository_tests.cpp
     tests/staging_tests.cpp
+    tests/tree_tests.cpp
   )
   target_link_libraries(minigit_tests PRIVATE minigit_core GTest::gtest_main)
   # Some tests run the real executable to prove state survives a restart.

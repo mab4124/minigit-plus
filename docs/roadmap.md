@@ -36,7 +36,7 @@ Rules for every commit:
 
 ## Day 4 — 2026-10-19 · Milestones 5–6: trees and commits
 
-- [ ] Build nested tree objects from the index with Git's entry ordering (directories sort as `name/`); `git` oracle check of tree ids
+- [x] Build nested tree objects from the index with Git's entry ordering (directories sort as `name/`); `git` oracle check of tree ids
 - [ ] Config: `minigit config user.name|user.email [value]` stored in `.git/config`
 - [ ] `minigit commit -m <msg>`: commit object, parent, branch ref update written last (atomic); reject empty commits
 - [ ] Tests: initial + subsequent commits, parent chain, `git cat-file -p` / `git log` oracle on our commits
