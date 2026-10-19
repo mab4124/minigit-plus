@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -52,6 +53,16 @@ class Repository {
   // Contents of HEAD, e.g. "refs/heads/main" for a symbolic HEAD.
   // Throws RepositoryError if HEAD is missing or malformed.
   std::string head_ref() const;
+
+  // The commit id stored in `ref` (e.g. "refs/heads/main"), or nullopt if the
+  // ref file does not exist yet, as on a branch with no commits. Throws
+  // RepositoryError if the ref name is invalid or the file does not hold a
+  // valid id. Packed refs are not supported.
+  std::optional<std::string> read_ref(const std::string& ref) const;
+
+  // Points `ref` at `oid`, creating the ref file if needed. The file is
+  // replaced atomically, so readers see either the old or the new id.
+  void write_ref(const std::string& ref, const std::string& oid) const;
 
  private:
   explicit Repository(fs::path worktree) : worktree_(std::move(worktree)) {}

@@ -38,7 +38,7 @@ Rules for every commit:
 
 - [x] Build nested tree objects from the index with Git's entry ordering (directories sort as `name/`); `git` oracle check of tree ids
 - [x] Config: `minigit config user.name|user.email [value]` stored in `.git/config`
-- [ ] `minigit commit -m <msg>`: commit object, parent, branch ref update written last (atomic); reject empty commits
+- [x] `minigit commit -m <msg>`: commit object, parent, branch ref update written last (atomic); reject empty commits
 - [ ] Tests: initial + subsequent commits, parent chain, `git cat-file -p` / `git log` oracle on our commits
 
 ## Day 5 — 2026-10-20 · Milestone 7: log and status

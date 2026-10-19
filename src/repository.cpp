@@ -4,6 +4,9 @@
 #include <sstream>
 #include <system_error>
 
+#include "minigit/file_util.hpp"
+#include "minigit/hash.hpp"
+
 namespace minigit {
 namespace {
 
@@ -14,12 +17,42 @@ void write_file(const fs::path& path, const std::string& contents) {
   if (!file) throw RepositoryError("failed while writing " + path.string());
 }
 
-std::string read_file(const fs::path& path) {
+std::string read_repo_file(const fs::path& path) {
   std::ifstream file(path, std::ios::binary);
   if (!file) throw RepositoryError("cannot read " + path.string());
   std::ostringstream ss;
   ss << file.rdbuf();
   return ss.str();
+}
+
+void strip_line_ending(std::string& text) {
+  while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.pop_back();
+}
+
+// Accepts "refs/<component>/..." where no component is empty, ".", ".." or
+// ends in ".lock". This is a subset of Git's check-ref-format rules, enough
+// to keep ref files inside .git/refs.
+void validate_ref_name(const std::string& ref) {
+  const auto bad = [&] { throw RepositoryError("invalid ref name '" + ref + "'"); };
+  if (ref.rfind("refs/", 0) != 0) bad();
+  std::size_t start = 0;
+  while (true) {
+    const auto slash = ref.find('/', start);
+    const std::string part = ref.substr(start, slash == std::string::npos ? slash : slash - start);
+    if (part.empty() || part.front() == '.' ||
+        (part.size() >= 5 && part.compare(part.size() - 5, 5, ".lock") == 0)) {
+      bad();
+    }
+    for (const char c : part) {
+      if (static_cast<unsigned char>(c) < 0x20 || c == 0x7f || c == ' ' || c == '~' ||
+          c == '^' || c == ':' || c == '?' || c == '*' || c == '[' || c == '\\') {
+        bad();
+      }
+    }
+    if (slash == std::string::npos) break;
+    start = slash + 1;
+  }
+  if (ref.find("..") != std::string::npos || ref.find("@{") != std::string::npos) bad();
 }
 
 }  // namespace
@@ -78,8 +111,8 @@ Repository Repository::discover(const fs::path& start) {
 }
 
 std::string Repository::head_ref() const {
-  std::string head = read_file(git_dir() / "HEAD");
-  while (!head.empty() && (head.back() == '\n' || head.back() == '\r')) head.pop_back();
+  std::string head = read_repo_file(git_dir() / "HEAD");
+  strip_line_ending(head);
 
   const std::string prefix = "ref: ";
   if (head.rfind(prefix, 0) != 0 || head.size() == prefix.size()) {
@@ -87,6 +120,27 @@ std::string Repository::head_ref() const {
                           head + "'");
   }
   return head.substr(prefix.size());
+}
+
+std::optional<std::string> Repository::read_ref(const std::string& ref) const {
+  validate_ref_name(ref);
+  const fs::path path = git_dir() / ref;
+  std::error_code ec;
+  if (!fs::exists(path, ec)) return std::nullopt;
+  std::string oid = read_repo_file(path);
+  strip_line_ending(oid);
+  if (!is_valid_oid(oid)) throw RepositoryError("ref " + ref + " is malformed: '" + oid + "'");
+  return oid;
+}
+
+void Repository::write_ref(const std::string& ref, const std::string& oid) const {
+  validate_ref_name(ref);
+  if (!is_valid_oid(oid)) throw RepositoryError("cannot point " + ref + " at invalid id '" + oid + "'");
+  const fs::path path = git_dir() / ref;
+  std::error_code ec;
+  fs::create_directories(path.parent_path(), ec);
+  if (ec) throw RepositoryError("cannot create " + path.parent_path().string() + ": " + ec.message());
+  write_file_atomic(path, oid + "\n");
 }
 
 }  // namespace minigit

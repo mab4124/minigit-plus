@@ -21,6 +21,7 @@ Currently implemented commands:
 |------------------------------------------|----------------------------------------------|
 | `minigit add [--] <path>...`             | Stage files or directories for the next commit |
 | `minigit cat-file (-t\|-s\|-p) <oid>`     | Show an object's type, size or contents      |
+| `minigit commit -m <message>`            | Record the staged files as a new commit      |
 | `minigit config <key> [<value>]`         | Get or set `user.name` / `user.email` in `.git/config` |
 | `minigit hash-object [-w] <file>`        | Compute a blob id; `-w` also stores the blob |
 | `minigit help`                           | Show the list of commands                    |
@@ -51,6 +52,16 @@ Currently implemented commands:
   Git can read them; subsections, `include` directives and line continuations
   are not supported, though existing lines MiniGit++ does not understand are
   preserved.
+- `commit` needs `user.name` and `user.email` set with `minigit config`; Git's
+  `GIT_AUTHOR_*` / `GIT_COMMITTER_*` environment variables are ignored, and the
+  author is also recorded as the committer. Times use the local timezone.
+- `commit` refuses to record a tree identical to the parent's (there is no
+  `--allow-empty`). Messages are cleaned like Git's default (trailing
+  whitespace and surrounding blank lines removed) but `#` lines are kept.
+- The branch ref is written last, by atomic rename, so a failed commit never
+  moves the branch. There is no lock file: two simultaneous commits are
+  detected on a best-effort basis only. HEAD must point at a branch (detached
+  HEAD is not supported) and packed refs are not read.
 - Annotated tag objects are not supported. Unknown commit headers (such as
   `gpgsig`) are skipped when parsing commits written by Git.
 

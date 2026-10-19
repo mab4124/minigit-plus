@@ -2,6 +2,7 @@
 
 #include "minigit/add.hpp"
 #include "minigit/config.hpp"
+#include "minigit/create_commit.hpp"
 #include "minigit/file_util.hpp"
 #include "minigit/hash.hpp"
 #include "minigit/object_store.hpp"
@@ -9,6 +10,7 @@
 #include "minigit/staging_index.hpp"
 #include "minigit/tree.hpp"
 
+#include <ctime>
 #include <exception>
 #include <functional>
 #include <ostream>
@@ -196,10 +198,52 @@ int cmd_config(CommandContext& ctx) {
   return kExitOk;
 }
 
+int cmd_commit(CommandContext& ctx) {
+  // Several -m options become separate paragraphs, as in Git.
+  std::string message;
+  bool have_message = false;
+  for (std::size_t i = 0; i < ctx.args.size(); ++i) {
+    const std::string& arg = ctx.args[i];
+    if (arg != "-m" || i + 1 == ctx.args.size()) {
+      if (arg != "-m") ctx.err << "minigit commit: unexpected argument '" << arg << "'\n";
+      ctx.err << "usage: minigit commit -m <message>\n";
+      return kExitUsage;
+    }
+    if (have_message) message += "\n\n";
+    message += ctx.args[++i];
+    have_message = true;
+  }
+  if (!have_message) {
+    ctx.err << "usage: minigit commit -m <message>\n";
+    return kExitUsage;
+  }
+
+  const Repository repo = Repository::discover(fs::current_path());
+  const Config config = Config::load(repo.config_path());
+  const auto name = config.get("user.name");
+  const auto email = config.get("user.email");
+  if (!name || name->empty() || !email) {
+    throw CommitError(
+        "author identity unknown; run\n"
+        "  minigit config user.name \"Your Name\"\n"
+        "  minigit config user.email \"you@example.com\"");
+  }
+
+  const CommitResult result =
+      create_commit(repo, message, make_signature(*name, *email, std::time(nullptr)));
+  std::string branch = result.branch;
+  if (branch.rfind("refs/heads/", 0) == 0) branch.erase(0, 11);
+  const std::string cleaned = clean_commit_message(message);
+  ctx.out << '[' << branch << (result.root ? " (root-commit) " : " ") << result.oid.substr(0, 7)
+          << "] " << cleaned.substr(0, cleaned.find('\n')) << '\n';
+  return kExitOk;
+}
+
 const std::vector<Command>& commands() {
   static const std::vector<Command> table = {
       {"add", "Stage file contents for the next commit", cmd_add},
       {"cat-file", "Show an object's type, size or contents", cmd_cat_file},
+      {"commit", "Record the staged files as a new commit", cmd_commit},
       {"config", "Get or set user.name / user.email", cmd_config},
       {"hash-object", "Compute a blob id, optionally storing it (-w)", cmd_hash_object},
       {"help", "Show this help message", cmd_help},
