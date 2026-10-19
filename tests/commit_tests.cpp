@@ -19,6 +19,8 @@ using minigit::ObjectType;
 using minigit::Repository;
 using minigit::RepositoryError;
 using minigit::Signature;
+using minigit::test::git_available;
+using minigit::test::git_in;
 using minigit::test::read_text;
 using minigit::test::ScopedCwd;
 using minigit::test::ScopedEnv;
@@ -277,6 +279,131 @@ TEST_F(CommitCommandTest, UsageErrors) {
   const auto r = run({"commit", "-m", "   "});
   EXPECT_EQ(r.code, minigit::kExitError);
   EXPECT_NE(r.err.find("empty commit message"), std::string::npos);
+}
+
+// --- history checked against real Git ---------------------------------------------
+
+class CommitHistoryTest : public CommitCommandTest {
+ protected:
+  // Writes `text` to `path` and stages it with `minigit add`.
+  void edit(const std::string& path, const std::string& text) {
+    write_text(tmp.path() / path, text);
+    const auto r = run({"add", path});
+    ASSERT_EQ(r.code, minigit::kExitOk) << r.err;
+  }
+
+  std::string commit(const std::string& message) {
+    const auto r = run({"commit", "-m", message});
+    EXPECT_EQ(r.code, minigit::kExitOk) << r.err;
+    return repo.read_ref("refs/heads/main").value_or("");
+  }
+};
+
+TEST_F(CommitHistoryTest, InitialAndSubsequentCommitsFormAParentChain) {
+  edit("README.md", "# demo\n");
+  edit("src/main.cpp", "int main() {}\n");
+  const std::string c1 = commit("Initial commit");
+  edit("src/main.cpp", "int main() { return 0; }\n");
+  edit("src/util/helpers.hpp", "#pragma once\n");
+  const std::string c2 = commit("Add helpers");
+  fs::remove(tmp.path() / "README.md");
+  ASSERT_EQ(run({"add", "README.md"}).code, minigit::kExitOk);
+  const std::string c3 = commit("Remove README");
+
+  // Walk first parents from the branch tip with our own parser.
+  std::vector<std::string> chain;
+  std::vector<std::string> messages;
+  for (std::optional<std::string> oid = repo.read_ref("refs/heads/main"); oid;) {
+    chain.push_back(*oid);
+    const Commit c = read_commit(*oid);
+    messages.push_back(c.message);
+    oid = c.parents.empty() ? std::nullopt : std::optional<std::string>(c.parents.front());
+  }
+  EXPECT_EQ(chain, (std::vector<std::string>{c3, c2, c1}));
+  EXPECT_EQ(messages, (std::vector<std::string>{"Remove README\n", "Add helpers\n",
+                                                "Initial commit\n"}));
+  EXPECT_EQ(read_commit(c1).parents.size(), 0u);
+  EXPECT_EQ(read_commit(c2).parents, std::vector<std::string>{c1});
+  EXPECT_EQ(read_commit(c3).parents, std::vector<std::string>{c2});
+}
+
+TEST_F(CommitHistoryTest, GitReadsOurCommits) {
+  if (!git_available()) GTEST_SKIP() << "git not installed";
+  edit("a.txt", "one\n");
+  edit("dir/b.txt", "bee\n");
+  const std::string c1 = commit("First");
+  edit("a.txt", "two\n");
+  const std::string c2 = commit("Second\n\nWith a body line.");
+  fs::remove_all(tmp.path() / "dir");
+  ASSERT_EQ(run({"add", "dir"}).code, minigit::kExitOk);
+  const std::string c3 = commit("Third");
+
+  // git cat-file shows exactly the bytes we stored.
+  for (const auto& oid : {c1, c2, c3}) {
+    const auto shown = minigit::test::run_command("git -C " + minigit::test::quote(tmp.path()) +
+                                                  " cat-file -p " + oid);
+    ASSERT_EQ(shown.status, 0) << oid;
+    EXPECT_EQ(shown.output, store.read(oid).content);
+    EXPECT_EQ(git_in(tmp.path(), "cat-file -t " + oid).output, "commit");
+  }
+
+  // git log follows our parent chain from HEAD (resolved through our ref).
+  EXPECT_EQ(git_in(tmp.path(), "rev-parse HEAD").output, c3);
+  EXPECT_EQ(git_in(tmp.path(), "log --format=%H").output, c3 + "\n" + c2 + "\n" + c1);
+  EXPECT_EQ(git_in(tmp.path(), "log \"--format=%an|%ae|%cn|%s\"").output,
+            "Ada Lovelace|ada@example.com|Ada Lovelace|Third\n"
+            "Ada Lovelace|ada@example.com|Ada Lovelace|Second\n"
+            "Ada Lovelace|ada@example.com|Ada Lovelace|First");
+  EXPECT_EQ(git_in(tmp.path(), "log -1 --skip=1 --format=%b").output, "With a body line.");
+  EXPECT_EQ(git_in(tmp.path(), "rev-list --count HEAD").output, "3");
+
+  // The recorded snapshots are what Git sees in each commit.
+  EXPECT_EQ(git_in(tmp.path(), "ls-tree -r --name-only " + c1).output, "a.txt\ndir/b.txt");
+  EXPECT_EQ(git_in(tmp.path(), "show " + c2 + ":a.txt").output, "two");
+  EXPECT_EQ(git_in(tmp.path(), "ls-tree -r --name-only " + c3).output, "a.txt");
+  EXPECT_EQ(git_in(tmp.path(), "diff --name-status " + c1 + " " + c2).output, "M\ta.txt");
+  EXPECT_EQ(git_in(tmp.path(), "diff --name-status " + c2 + " " + c3).output, "D\tdir/b.txt");
+
+  // And the repository passes Git's own consistency check.
+  EXPECT_EQ(git_in(tmp.path(), "fsck --strict --no-dangling").status, 0);
+}
+
+// The same tree, parent, identity and time give the same commit id in Git.
+TEST_F(CommitHistoryTest, CommitIdsMatchGitCommitTree) {
+  if (!git_available()) GTEST_SKIP() << "git not installed";
+  ScopedEnv an("GIT_AUTHOR_NAME", author.name), ae("GIT_AUTHOR_EMAIL", author.email),
+      ad("GIT_AUTHOR_DATE", "1700000000 +0530"), cn("GIT_COMMITTER_NAME", author.name),
+      ce("GIT_COMMITTER_EMAIL", author.email), cd("GIT_COMMITTER_DATE", "1700000000 +0530");
+
+  stage("a", "1\n");
+  const auto first = minigit::create_commit(repo, "first", author);
+  const std::string tree1 = read_commit(first.oid).tree;
+  EXPECT_EQ(git_in(tmp.path(), "commit-tree " + tree1 + " -m first").output, first.oid);
+
+  stage("b/c", "2\n");
+  const auto second = minigit::create_commit(repo, "second", author);
+  const std::string tree2 = read_commit(second.oid).tree;
+  EXPECT_EQ(git_in(tmp.path(), "commit-tree " + tree2 + " -p " + first.oid + " -m second").output,
+            second.oid);
+}
+
+TEST_F(CommitHistoryTest, HistorySurvivesSeparateProcesses) {
+  const auto exe = [&](const std::string& args) {
+    return minigit::test::run_command("cd " + minigit::test::quote(tmp.path()) + " && " +
+                                      minigit::test::quote(MINIGIT_EXE) + " " + args);
+  };
+  write_text(tmp.path() / "f.txt", "v1\n");
+  ASSERT_EQ(exe("add f.txt").status, 0);
+  ASSERT_EQ(exe("commit -m \"first\"").status, 0);
+  const std::string c1 = repo.read_ref("refs/heads/main").value_or("");
+  write_text(tmp.path() / "f.txt", "v2\n");
+  ASSERT_EQ(exe("add f.txt").status, 0);
+  ASSERT_EQ(exe("commit -m \"second\"").status, 0);
+  const std::string c2 = repo.read_ref("refs/heads/main").value_or("");
+  ASSERT_NE(c1, c2);
+  EXPECT_EQ(read_commit(c2).parents, std::vector<std::string>{c1});
+  EXPECT_NE(exe("commit -m \"nothing new\"").status, 0);
+  EXPECT_EQ(repo.read_ref("refs/heads/main"), c2);
 }
 
 TEST(CommitCommand, OutsideRepositoryFails) {
