@@ -21,6 +21,7 @@ Currently implemented commands:
 |------------------------------------------|----------------------------------------------|
 | `minigit add [--] <path>...`             | Stage files or directories for the next commit |
 | `minigit cat-file (-t\|-s\|-p) <oid>`     | Show an object's type, size or contents      |
+| `minigit config <key> [<value>]`         | Get or set `user.name` / `user.email` in `.git/config` |
 | `minigit hash-object [-w] <file>`        | Compute a blob id; `-w` also stores the blob |
 | `minigit help`                           | Show the list of commands                    |
 | `minigit init [dir]`                     | Create an empty repository                   |
@@ -44,6 +45,12 @@ Currently implemented commands:
   Windows they currently go through the narrow code page and are not tested.
 - The staging index is MiniGit++'s own text file (`.git/minigit/index`), not
   Git's binary `.git/index`, so `git status` does not see what MiniGit++ staged.
+- `config` only reads and writes the repository's `.git/config` and only
+  accepts `user.name` and `user.email`. The global `~/.gitconfig` is not read.
+  Values are stored in Git's syntax (quoted and escaped where needed) so real
+  Git can read them; subsections, `include` directives and line continuations
+  are not supported, though existing lines MiniGit++ does not understand are
+  preserved.
 - Annotated tag objects are not supported. Unknown commit headers (such as
   `gpgsig`) are skipped when parsing commits written by Git.
 

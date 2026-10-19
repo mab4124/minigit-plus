@@ -23,6 +23,7 @@ add_library(minigit_core
   src/cli.cpp
   src/commit.cpp
   src/compression.cpp
+  src/config.cpp
   src/file_util.cpp
   src/hash.cpp
   src/object_store.cpp
@@ -56,6 +57,7 @@ if(MINIGIT_BUILD_TESTS)
   add_executable(minigit_tests
     tests/cli_tests.cpp
     tests/command_tests.cpp
+    tests/config_tests.cpp
     tests/object_tests.cpp
     tests/repository_tests.cpp
     tests/staging_tests.cpp

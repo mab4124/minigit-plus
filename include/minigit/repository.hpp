@@ -43,6 +43,7 @@ class Repository {
 
   const fs::path& worktree() const { return worktree_; }
   fs::path git_dir() const { return worktree_ / ".git"; }
+  fs::path config_path() const { return git_dir() / "config"; }
   fs::path objects_dir() const { return git_dir() / "objects"; }
   fs::path refs_dir() const { return git_dir() / "refs"; }
   fs::path minigit_dir() const { return git_dir() / "minigit"; }

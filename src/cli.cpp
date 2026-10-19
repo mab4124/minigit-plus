@@ -1,6 +1,7 @@
 #include "minigit/cli.hpp"
 
 #include "minigit/add.hpp"
+#include "minigit/config.hpp"
 #include "minigit/file_util.hpp"
 #include "minigit/hash.hpp"
 #include "minigit/object_store.hpp"
@@ -168,10 +169,38 @@ int cmd_add(CommandContext& ctx) {
   return kExitOk;
 }
 
+int cmd_config(CommandContext& ctx) {
+  if (ctx.args.empty() || ctx.args.size() > 2) {
+    ctx.err << "usage: minigit config <key> [<value>]\n";
+    return kExitUsage;
+  }
+  const std::string& key = ctx.args[0];
+  // Only the keys MiniGit++ itself reads are accepted, so a typo such as
+  // "user.mail" is reported instead of being silently stored.
+  if (key != "user.name" && key != "user.email") {
+    ctx.err << "minigit config: unsupported key '" << key
+            << "' (supported: user.name, user.email)\n";
+    return kExitUsage;
+  }
+
+  const Repository repo = Repository::discover(fs::current_path());
+  Config config = Config::load(repo.config_path());
+  if (ctx.args.size() == 1) {
+    const auto value = config.get(key);
+    if (!value) return kExitError;  // unset: no output, like `git config`
+    ctx.out << *value << '\n';
+    return kExitOk;
+  }
+  config.set(key, ctx.args[1]);
+  config.save();
+  return kExitOk;
+}
+
 const std::vector<Command>& commands() {
   static const std::vector<Command> table = {
       {"add", "Stage file contents for the next commit", cmd_add},
       {"cat-file", "Show an object's type, size or contents", cmd_cat_file},
+      {"config", "Get or set user.name / user.email", cmd_config},
       {"hash-object", "Compute a blob id, optionally storing it (-w)", cmd_hash_object},
       {"help", "Show this help message", cmd_help},
       {"init", "Create an empty repository", cmd_init},
