@@ -3,6 +3,7 @@
 #include <cstdlib>
 
 #include "minigit/object_store.hpp"
+#include "minigit/refs.hpp"
 #include "minigit/staging_index.hpp"
 #include "minigit/tree.hpp"
 
@@ -82,8 +83,9 @@ CommitResult create_commit(const Repository& repo, const std::string& message,
                            const Signature& author) {
   const ObjectStore store(repo.objects_dir());
   const StagingIndex index = StagingIndex::load(repo.index_path());
-  const std::string branch = repo.head_ref();
-  const std::optional<std::string> parent = repo.read_ref(branch);
+  const HeadState head = resolve_head(repo);
+  const std::string& branch = head.branch_ref;
+  const std::optional<std::string>& parent = head.commit;
 
   Commit commit;
   commit.message = clean_commit_message(message);

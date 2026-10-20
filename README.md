@@ -20,7 +20,7 @@ Currently implemented commands:
 | Command                                  | Description                                  |
 |------------------------------------------|----------------------------------------------|
 | `minigit add [--] <path>...`             | Stage files or directories for the next commit |
-| `minigit cat-file (-t\|-s\|-p) <oid>`     | Show an object's type, size or contents      |
+| `minigit cat-file (-t\|-s\|-p) <object>`  | Show an object's type, size or contents      |
 | `minigit commit -m <message>`            | Record the staged files as a new commit      |
 | `minigit config <key> [<value>]`         | Get or set `user.name` / `user.email` in `.git/config` |
 | `minigit hash-object [-w] <file>`        | Compute a blob id; `-w` also stores the blob |
@@ -31,8 +31,10 @@ Currently implemented commands:
 ### Current limitations
 
 - Only loose objects are read and written; pack files are not supported.
-- Object ids must be given in full (40 hex characters); abbreviations and
-  ref names are not accepted by `cat-file` yet.
+- Objects are named by a full 40-character id, `HEAD`, a full ref name
+  (`refs/heads/main`) or a short branch/tag name (tags win, as in Git).
+  Abbreviated ids and revision syntax such as `HEAD~1`, `main^` or `@` are not
+  supported.
 - `hash-object` hashes file bytes exactly; Git's line-ending and filter
   conversions are not applied.
 - `add` stages regular files only. Symbolic links and special files found

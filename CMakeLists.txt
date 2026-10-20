@@ -28,6 +28,7 @@ add_library(minigit_core
   src/file_util.cpp
   src/hash.cpp
   src/object_store.cpp
+  src/refs.cpp
   src/repository.cpp
   src/staging_index.cpp
   src/tree.cpp
@@ -61,6 +62,7 @@ if(MINIGIT_BUILD_TESTS)
     tests/commit_tests.cpp
     tests/config_tests.cpp
     tests/object_tests.cpp
+    tests/refs_tests.cpp
     tests/repository_tests.cpp
     tests/staging_tests.cpp
     tests/tree_tests.cpp

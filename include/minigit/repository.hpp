@@ -64,6 +64,12 @@ class Repository {
   // replaced atomically, so readers see either the old or the new id.
   void write_ref(const std::string& ref, const std::string& oid) const;
 
+  // True if `ref` is a name read_ref/write_ref accept: "refs/" followed by
+  // components that are not empty, do not start with '.', do not end in
+  // ".lock" and contain no spaces, control characters or any of ~^:?*[\.
+  // ".." and "@{" are rejected anywhere. A subset of `git check-ref-format`.
+  static bool is_valid_ref_name(const std::string& ref);
+
  private:
   explicit Repository(fs::path worktree) : worktree_(std::move(worktree)) {}
 

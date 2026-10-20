@@ -29,33 +29,37 @@ void strip_line_ending(std::string& text) {
   while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.pop_back();
 }
 
-// Accepts "refs/<component>/..." where no component is empty, ".", ".." or
-// ends in ".lock". This is a subset of Git's check-ref-format rules, enough
-// to keep ref files inside .git/refs.
-void validate_ref_name(const std::string& ref) {
-  const auto bad = [&] { throw RepositoryError("invalid ref name '" + ref + "'"); };
-  if (ref.rfind("refs/", 0) != 0) bad();
+// See Repository::is_valid_ref_name. The rules are enough to keep ref files
+// inside .git/refs.
+bool check_ref_name(const std::string& ref) {
+  if (ref.rfind("refs/", 0) != 0) return false;
   std::size_t start = 0;
   while (true) {
     const auto slash = ref.find('/', start);
     const std::string part = ref.substr(start, slash == std::string::npos ? slash : slash - start);
     if (part.empty() || part.front() == '.' ||
         (part.size() >= 5 && part.compare(part.size() - 5, 5, ".lock") == 0)) {
-      bad();
+      return false;
     }
     for (const char c : part) {
       if (static_cast<unsigned char>(c) < 0x20 || c == 0x7f || c == ' ' || c == '~' ||
           c == '^' || c == ':' || c == '?' || c == '*' || c == '[' || c == '\\') {
-        bad();
+        return false;
       }
     }
     if (slash == std::string::npos) break;
     start = slash + 1;
   }
-  if (ref.find("..") != std::string::npos || ref.find("@{") != std::string::npos) bad();
+  return ref.find("..") == std::string::npos && ref.find("@{") == std::string::npos;
+}
+
+void validate_ref_name(const std::string& ref) {
+  if (!check_ref_name(ref)) throw RepositoryError("invalid ref name '" + ref + "'");
 }
 
 }  // namespace
+
+bool Repository::is_valid_ref_name(const std::string& ref) { return check_ref_name(ref); }
 
 bool Repository::is_repository_root(const fs::path& dir) {
   std::error_code ec;

@@ -4,8 +4,8 @@
 #include "minigit/config.hpp"
 #include "minigit/create_commit.hpp"
 #include "minigit/file_util.hpp"
-#include "minigit/hash.hpp"
 #include "minigit/object_store.hpp"
+#include "minigit/refs.hpp"
 #include "minigit/repository.hpp"
 #include "minigit/staging_index.hpp"
 #include "minigit/tree.hpp"
@@ -119,13 +119,15 @@ int cmd_cat_file(CommandContext& ctx) {
     return kExitUsage;
   }
   const std::string& flag = ctx.args[0];
-  const std::string& oid = ctx.args[1];
-  if (!is_valid_oid(oid)) {
-    // Abbreviated ids and ref names are not supported yet.
-    throw ObjectError("not a valid object name '" + oid + "' (expected a full 40-character id)");
-  }
-
   const Repository repo = Repository::discover(fs::current_path());
+  std::string oid;
+  try {
+    oid = resolve_revision(repo, ctx.args[1]);
+  } catch (const RevisionError&) {
+    // Abbreviated ids are not supported.
+    throw ObjectError("not a valid object name '" + ctx.args[1] +
+                      "' (expected a full 40-character id, HEAD or a branch/tag name)");
+  }
   const RawObject obj = ObjectStore(repo.objects_dir()).read(oid);
   if (flag == "-t") {
     ctx.out << to_string(obj.type) << '\n';
@@ -231,8 +233,7 @@ int cmd_commit(CommandContext& ctx) {
 
   const CommitResult result =
       create_commit(repo, message, make_signature(*name, *email, std::time(nullptr)));
-  std::string branch = result.branch;
-  if (branch.rfind("refs/heads/", 0) == 0) branch.erase(0, 11);
+  const std::string branch = short_branch_name(result.branch);
   const std::string cleaned = clean_commit_message(message);
   ctx.out << '[' << branch << (result.root ? " (root-commit) " : " ") << result.oid.substr(0, 7)
           << "] " << cleaned.substr(0, cleaned.find('\n')) << '\n';
