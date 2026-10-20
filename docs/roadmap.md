@@ -46,7 +46,7 @@ Rules for every commit:
 - [x] Ref resolution helpers (HEAD → branch → commit id) shared by commands
 - [x] `minigit log [-n N]` traversing first parents
 - [x] `minigit status`: staged, modified, deleted, untracked
-- [ ] Tests: no changes, staged-only, unstaged-only, mixed; document unsupported cases in README
+- [x] Tests: no changes, staged-only, unstaged-only, mixed; document unsupported cases in README
 
 ## Day 6 — 2026-10-21 · Milestone 8: branches and checkout
 

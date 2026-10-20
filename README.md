@@ -71,6 +71,29 @@ Currently implemented commands:
   `--oneline` or other formats. Its output matches Git's default format,
   except that merge parents on the `Merge:` line are always abbreviated to 7
   characters (Git lengthens them if 7 is ambiguous).
+- `status` compares HEAD, MiniGit++'s staging index and the worktree. What it
+  does not do (yet):
+  - **No `.gitignore` support**: every untracked file is listed. A directory
+    with no staged files below it is shown once as `dir/`, like Git's default
+    (`-unormal`); there is no `-uall`/`-uno`.
+  - **No rename detection**: a moved file shows as a deletion plus an
+    addition (Git's `--no-renames`).
+  - Paths are always relative to the repository root (even when run from a
+    subdirectory) and are never quoted, so `--short` output for names with
+    spaces, quotes or non-ASCII characters differs from `git status
+    --porcelain`, which quotes them.
+  - No pathspec arguments, branch/ahead-behind information, `-b`, `-z` or
+    `--porcelain=v2`; `--porcelain` is accepted as a synonym for `--short`.
+  - Every tracked file is re-read and hashed on each run (no stat cache), so
+    it is slower than Git on large trees but never fooled by timestamps.
+  - Executable-bit changes are reported (even though `init` writes
+    `core.filemode = false`, which makes real Git ignore them); on Windows the
+    bit is never compared.
+  - Symbolic links are listed as untracked but cannot be staged; a tracked
+    file replaced by a symbolic link is a `typechange`. A tracked file
+    replaced by a directory, or reached through a symbolic link, is reported
+    as deleted. Submodules and special files are not supported.
+  - A nested repository that contains only `.git` metadata is not listed.
 - Annotated tag objects are not supported. Unknown commit headers (such as
   `gpgsig`) are skipped when parsing commits written by Git.
 

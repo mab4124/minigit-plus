@@ -369,4 +369,143 @@ TEST_F(StatusTest, ShortFormatMatchesGitPorcelain) {
             "?? notes.txt\n");
 }
 
+// --- scenarios from the roadmap, each checked against real Git ----------------------
+
+class StatusScenarioTest : public StatusTest {
+ protected:
+  void SetUp() override {
+    StatusTest::SetUp();
+    write("README.md", "# demo\n");
+    write("src/app.cpp", "int main() {}\n");
+    write("src/util/strings.hpp", "#pragma once\n");
+    write("docs/notes.md", "notes\n");
+    add(".");
+    commit("base");
+  }
+
+  // Runs the real executable in its own process, so the result also shows
+  // that status reads only what earlier processes left on disk.
+  std::string exe_short_status() const {
+    const auto r = minigit::test::run_command("cd " + minigit::test::quote(tmp.path()) + " && " +
+                                              minigit::test::quote(MINIGIT_EXE) + " status -s");
+    EXPECT_EQ(r.status, 0);
+    return r.output;
+  }
+
+  void expect_short(const std::string& expected) {
+    EXPECT_EQ(short_status(), expected);
+    EXPECT_EQ(exe_short_status(), expected);
+    if (git_available()) EXPECT_EQ(git_short_status(), expected);
+  }
+};
+
+TEST_F(StatusScenarioTest, NoChanges) {
+  const auto s = status();
+  EXPECT_TRUE(s.clean());
+  expect_short("");
+  EXPECT_EQ(run({"status"}).out, "On branch main\n\nnothing to commit, working tree clean\n");
+
+  // Rewriting a file with identical content is still no change.
+  write("src/app.cpp", "int main() {}\n");
+  expect_short("");
+  // So is an empty directory, which Git cannot track either.
+  fs::create_directories(tmp.path() / "empty");
+  expect_short("");
+}
+
+TEST_F(StatusScenarioTest, StagedOnly) {
+  write("README.md", "# demo v2\n");
+  write("src/new.cpp", "void f() {}\n");
+  fs::remove(tmp.path() / "docs" / "notes.md");
+  add("README.md");
+  add("src/new.cpp");
+  add("docs");
+
+  const auto s = status();
+  EXPECT_EQ(s.staged, (Entries{{"README.md", ChangeKind::Modified},
+                               {"docs/notes.md", ChangeKind::Deleted},
+                               {"src/new.cpp", ChangeKind::Added}}));
+  EXPECT_TRUE(s.unstaged.empty());
+  EXPECT_TRUE(s.untracked.empty());
+  expect_short("M  README.md\nD  docs/notes.md\nA  src/new.cpp\n");
+
+  // Committing the staged changes makes the tree clean again.
+  commit("update");
+  expect_short("");
+}
+
+TEST_F(StatusScenarioTest, UnstagedOnly) {
+  write("src/app.cpp", "int main() { return 2; }\n");
+  fs::remove(tmp.path() / "src" / "util" / "strings.hpp");
+
+  const auto s = status();
+  EXPECT_TRUE(s.staged.empty());
+  EXPECT_EQ(s.unstaged, (Entries{{"src/app.cpp", ChangeKind::Modified},
+                                 {"src/util/strings.hpp", ChangeKind::Deleted}}));
+  EXPECT_TRUE(s.untracked.empty());
+  expect_short(" M src/app.cpp\n D src/util/strings.hpp\n");
+
+  // Restoring the original content removes the change.
+  write("src/app.cpp", "int main() {}\n");
+  expect_short(" D src/util/strings.hpp\n");
+}
+
+TEST_F(StatusScenarioTest, UntrackedOnly) {
+  write("todo.txt", "t\n");
+  write("src/util/extra.hpp", "e\n");
+  write("assets/img/logo.svg", "<svg/>\n");
+  const auto s = status();
+  EXPECT_TRUE(s.staged.empty());
+  EXPECT_TRUE(s.unstaged.empty());
+  EXPECT_EQ(s.untracked, (Paths{"assets/", "src/util/extra.hpp", "todo.txt"}));
+  expect_short("?? assets/\n?? src/util/extra.hpp\n?? todo.txt\n");
+}
+
+TEST_F(StatusScenarioTest, Mixed) {
+  write("README.md", "# staged\n");  // staged, then modified again
+  add("README.md");
+  write("README.md", "# staged and edited\n");
+  write("src/app.cpp", "int main() { return 3; }\n");  // unstaged only
+  write("src/added.cpp", "added\n");                    // added, then deleted on disk
+  add("src/added.cpp");
+  fs::remove(tmp.path() / "src" / "added.cpp");
+  fs::remove(tmp.path() / "docs" / "notes.md");  // staged deletion
+  add("docs/notes.md");
+  write("docs/notes.md", "back\n");  // ... but a new file is there again
+  write("scratch/tmp.txt", "u\n");   // untracked directory
+
+  const auto s = status();
+  EXPECT_EQ(s.staged, (Entries{{"README.md", ChangeKind::Modified},
+                               {"docs/notes.md", ChangeKind::Deleted},
+                               {"src/added.cpp", ChangeKind::Added}}));
+  EXPECT_EQ(s.unstaged, (Entries{{"README.md", ChangeKind::Modified},
+                                 {"src/added.cpp", ChangeKind::Deleted},
+                                 {"src/app.cpp", ChangeKind::Modified}}));
+  EXPECT_EQ(s.untracked, (Paths{"docs/", "scratch/"}));
+  expect_short(
+      "MM README.md\n"
+      "D  docs/notes.md\n"
+      "AD src/added.cpp\n"
+      " M src/app.cpp\n"
+      "?? docs/\n"
+      "?? scratch/\n");
+
+  const auto r = run({"status"});
+  EXPECT_EQ(r.out,
+            "On branch main\n\n"
+            "Changes to be committed:\n"
+            "\tmodified:   README.md\n"
+            "\tdeleted:    docs/notes.md\n"
+            "\tnew file:   src/added.cpp\n\n"
+            "Changes not staged for commit:\n"
+            "  (use \"minigit add <file>...\" to update what will be committed)\n"
+            "\tmodified:   README.md\n"
+            "\tdeleted:    src/added.cpp\n"
+            "\tmodified:   src/app.cpp\n\n"
+            "Untracked files:\n"
+            "  (use \"minigit add <file>...\" to include in what will be committed)\n"
+            "\tdocs/\n"
+            "\tscratch/\n\n");
+}
+
 }  // namespace
