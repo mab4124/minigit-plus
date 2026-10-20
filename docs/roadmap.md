@@ -44,7 +44,7 @@ Rules for every commit:
 ## Day 5 — 2026-10-20 · Milestone 7: log and status
 
 - [x] Ref resolution helpers (HEAD → branch → commit id) shared by commands
-- [ ] `minigit log [-n N]` traversing first parents
+- [x] `minigit log [-n N]` traversing first parents
 - [ ] `minigit status`: staged, modified, deleted, untracked
 - [ ] Tests: no changes, staged-only, unstaged-only, mixed; document unsupported cases in README
 

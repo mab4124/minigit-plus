@@ -4,15 +4,18 @@
 #include "minigit/config.hpp"
 #include "minigit/create_commit.hpp"
 #include "minigit/file_util.hpp"
+#include "minigit/log.hpp"
 #include "minigit/object_store.hpp"
 #include "minigit/refs.hpp"
 #include "minigit/repository.hpp"
 #include "minigit/staging_index.hpp"
 #include "minigit/tree.hpp"
 
+#include <charconv>
 #include <ctime>
 #include <exception>
 #include <functional>
+#include <optional>
 #include <ostream>
 #include <string_view>
 
@@ -240,6 +243,48 @@ int cmd_commit(CommandContext& ctx) {
   return kExitOk;
 }
 
+// Parses a non-negative decimal count such as the N in `log -n N`.
+std::optional<std::size_t> parse_count(std::string_view text) {
+  std::size_t value = 0;
+  const auto [end, ec] = std::from_chars(text.data(), text.data() + text.size(), value);
+  if (text.empty() || ec != std::errc() || end != text.data() + text.size()) return std::nullopt;
+  return value;
+}
+
+int cmd_log(CommandContext& ctx) {
+  std::optional<std::size_t> limit;
+  for (std::size_t i = 0; i < ctx.args.size(); ++i) {
+    const std::string& arg = ctx.args[i];
+    std::string_view value;
+    if (arg == "-n" && i + 1 < ctx.args.size()) {
+      value = ctx.args[++i];
+    } else if (arg.rfind("-n", 0) == 0 && arg.size() > 2) {
+      value = std::string_view(arg).substr(2);
+    } else if (arg.rfind("--max-count=", 0) == 0) {
+      value = std::string_view(arg).substr(12);
+    } else {
+      if (arg != "-n") ctx.err << "minigit log: unexpected argument '" << arg << "'\n";
+      ctx.err << "usage: minigit log [-n <count>]\n";
+      return kExitUsage;
+    }
+    limit = parse_count(value);
+    if (!limit) {
+      ctx.err << "minigit log: '" << value << "' is not a valid commit count\n";
+      return kExitUsage;
+    }
+  }
+
+  const Repository repo = Repository::discover(fs::current_path());
+  const HeadState head = resolve_head(repo);
+  if (!head.commit) {
+    ctx.err << "fatal: your current branch '" << short_branch_name(head.branch_ref)
+            << "' does not have any commits yet\n";
+    return kExitError;
+  }
+  print_log(ctx.out, first_parent_log(ObjectStore(repo.objects_dir()), *head.commit, limit));
+  return kExitOk;
+}
+
 const std::vector<Command>& commands() {
   static const std::vector<Command> table = {
       {"add", "Stage file contents for the next commit", cmd_add},
@@ -249,6 +294,7 @@ const std::vector<Command>& commands() {
       {"hash-object", "Compute a blob id, optionally storing it (-w)", cmd_hash_object},
       {"help", "Show this help message", cmd_help},
       {"init", "Create an empty repository", cmd_init},
+      {"log", "Show the commit history of the current branch", cmd_log},
       {"version", "Show the MiniGit++ version", cmd_version},
   };
   return table;

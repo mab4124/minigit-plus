@@ -26,6 +26,7 @@ Currently implemented commands:
 | `minigit hash-object [-w] <file>`        | Compute a blob id; `-w` also stores the blob |
 | `minigit help`                           | Show the list of commands                    |
 | `minigit init [dir]`                     | Create an empty repository                   |
+| `minigit log [-n <count>]`               | Show the current branch's history, newest first |
 | `minigit version`                        | Print the MiniGit++ version                  |
 
 ### Current limitations
@@ -64,6 +65,11 @@ Currently implemented commands:
   moves the branch. There is no lock file: two simultaneous commits are
   detected on a best-effort basis only. HEAD must point at a branch (detached
   HEAD is not supported) and packed refs are not read.
+- `log` follows first parents only (like `git log --first-parent`) from the
+  current branch; it takes no revision or path arguments and has no
+  `--oneline` or other formats. Its output matches Git's default format,
+  except that merge parents on the `Merge:` line are always abbreviated to 7
+  characters (Git lengthens them if 7 is ambiguous).
 - Annotated tag objects are not supported. Unknown commit headers (such as
   `gpgsig`) are skipped when parsing commits written by Git.
 
