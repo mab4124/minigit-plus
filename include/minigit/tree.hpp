@@ -1,13 +1,15 @@
 #pragma once
 
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include "minigit/staging_index.hpp"
+
 namespace minigit {
 
 class ObjectStore;
-class StagingIndex;
 
 // File modes as Git writes them in tree objects (note: no leading zero on
 // directories). MiniGit++ creates only the first three; the others are
@@ -47,5 +49,13 @@ std::vector<TreeEntry> parse_tree(std::string_view content);
 // contain staged files appear, since Git trees cannot record empty
 // directories. Blobs are assumed to be in `store` already (`add` writes them).
 std::string write_tree_from_index(const ObjectStore& store, const StagingIndex& index);
+
+// Reads the tree `tree_oid` and all its subtrees into a flat map from
+// '/'-separated path to mode and id, the same shape as the staging index.
+// Only non-tree entries appear; their mode may be any file mode Git writes,
+// including kModeSymlink and kModeGitlink. Throws ObjectError if a tree is
+// missing, corrupt, or not a tree.
+std::map<std::string, IndexEntry> flatten_tree(const ObjectStore& store,
+                                               const std::string& tree_oid);
 
 }  // namespace minigit

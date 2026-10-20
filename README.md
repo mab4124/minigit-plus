@@ -27,6 +27,7 @@ Currently implemented commands:
 | `minigit help`                           | Show the list of commands                    |
 | `minigit init [dir]`                     | Create an empty repository                   |
 | `minigit log [-n <count>]`               | Show the current branch's history, newest first |
+| `minigit status [-s\|--short]`           | Show staged, modified, deleted and untracked files |
 | `minigit version`                        | Print the MiniGit++ version                  |
 
 ### Current limitations

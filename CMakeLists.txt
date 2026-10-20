@@ -32,6 +32,7 @@ add_library(minigit_core
   src/refs.cpp
   src/repository.cpp
   src/staging_index.cpp
+  src/status.cpp
   src/tree.cpp
 )
 target_include_directories(minigit_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -67,6 +68,7 @@ if(MINIGIT_BUILD_TESTS)
     tests/refs_tests.cpp
     tests/repository_tests.cpp
     tests/staging_tests.cpp
+    tests/status_tests.cpp
     tests/tree_tests.cpp
   )
   target_link_libraries(minigit_tests PRIVATE minigit_core GTest::gtest_main)

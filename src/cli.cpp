@@ -9,6 +9,7 @@
 #include "minigit/refs.hpp"
 #include "minigit/repository.hpp"
 #include "minigit/staging_index.hpp"
+#include "minigit/status.hpp"
 #include "minigit/tree.hpp"
 
 #include <charconv>
@@ -285,6 +286,28 @@ int cmd_log(CommandContext& ctx) {
   return kExitOk;
 }
 
+int cmd_status(CommandContext& ctx) {
+  bool short_format = false;
+  for (const auto& arg : ctx.args) {
+    if (arg == "-s" || arg == "--short" || arg == "--porcelain") {
+      short_format = true;
+    } else {
+      ctx.err << "minigit status: unexpected argument '" << arg << "'\n"
+              << "usage: minigit status [-s | --short | --porcelain]\n";
+      return kExitUsage;
+    }
+  }
+
+  const Repository repo = Repository::discover(fs::current_path());
+  const Status status = compute_status(repo);
+  if (short_format) {
+    print_status_short(ctx.out, status);
+  } else {
+    print_status_long(ctx.out, status);
+  }
+  return kExitOk;
+}
+
 const std::vector<Command>& commands() {
   static const std::vector<Command> table = {
       {"add", "Stage file contents for the next commit", cmd_add},
@@ -295,6 +318,7 @@ const std::vector<Command>& commands() {
       {"help", "Show this help message", cmd_help},
       {"init", "Create an empty repository", cmd_init},
       {"log", "Show the commit history of the current branch", cmd_log},
+      {"status", "Show staged, modified, deleted and untracked files", cmd_status},
       {"version", "Show the MiniGit++ version", cmd_version},
   };
   return table;

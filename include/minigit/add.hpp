@@ -40,4 +40,9 @@ struct AddResult {
 AddResult add_paths(const Repository& repo, StagingIndex& index,
                     const std::vector<std::string>& pathspecs, const fs::path& cwd);
 
+// The mode `add` records for the regular file at `abs`: kModeExecutable if
+// its owner-execute bit is set, otherwise kModeFile. Always kModeFile on
+// Windows, which has no executable bit.
+std::string_view worktree_file_mode(const fs::path& abs);
+
 }  // namespace minigit

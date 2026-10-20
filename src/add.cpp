@@ -110,18 +110,8 @@ class Adder {
 
   void stage_file(const std::string& rel, const fs::path& abs) {
     const std::string oid = store_.write(ObjectType::Blob, read_file(abs));
-    index_.stage(rel, {std::string(file_mode(abs)), oid});
+    index_.stage(rel, {std::string(worktree_file_mode(abs)), oid});
     result_.staged.push_back(rel);
-  }
-
-  static std::string_view file_mode(const fs::path& abs) {
-#ifdef _WIN32
-    (void)abs;
-    return kModeFile;  // Windows has no executable bit
-#else
-    const auto perms = fs::status(abs).permissions();
-    return (perms & fs::perms::owner_exec) != fs::perms::none ? kModeExecutable : kModeFile;
-#endif
   }
 
   fs::path worktree_;
@@ -131,6 +121,16 @@ class Adder {
 };
 
 }  // namespace
+
+std::string_view worktree_file_mode(const fs::path& abs) {
+#ifdef _WIN32
+  (void)abs;
+  return kModeFile;  // Windows has no executable bit
+#else
+  const auto perms = fs::status(abs).permissions();
+  return (perms & fs::perms::owner_exec) != fs::perms::none ? kModeExecutable : kModeFile;
+#endif
+}
 
 AddResult add_paths(const Repository& repo, StagingIndex& index,
                     const std::vector<std::string>& pathspecs, const fs::path& cwd) {

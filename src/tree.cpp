@@ -62,6 +62,23 @@ std::string write_subtree(const ObjectStore& store, IndexIterator first, IndexIt
   return store.write(ObjectType::Tree, serialize_tree(std::move(entries)));
 }
 
+void flatten_into(const ObjectStore& store, const std::string& tree_oid, const std::string& prefix,
+                  std::map<std::string, IndexEntry>& out) {
+  const RawObject obj = store.read(tree_oid);
+  if (obj.type != ObjectType::Tree) {
+    throw ObjectError("object " + tree_oid + " is a " + std::string(to_string(obj.type)) +
+                      ", not a tree");
+  }
+  for (auto& entry : parse_tree(obj.content)) {
+    std::string path = prefix + entry.name;
+    if (entry.is_tree()) {
+      flatten_into(store, entry.oid, path + '/', out);
+    } else {
+      out[std::move(path)] = {std::move(entry.mode), std::move(entry.oid)};
+    }
+  }
+}
+
 }  // namespace
 
 bool tree_entry_less(const TreeEntry& a, const TreeEntry& b) {
@@ -113,6 +130,13 @@ std::vector<TreeEntry> parse_tree(std::string_view content) {
 
 std::string write_tree_from_index(const ObjectStore& store, const StagingIndex& index) {
   return write_subtree(store, index.entries().begin(), index.entries().end(), 0);
+}
+
+std::map<std::string, IndexEntry> flatten_tree(const ObjectStore& store,
+                                               const std::string& tree_oid) {
+  std::map<std::string, IndexEntry> out;
+  flatten_into(store, tree_oid, "", out);
+  return out;
 }
 
 }  // namespace minigit
