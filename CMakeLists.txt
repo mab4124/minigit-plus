@@ -21,6 +21,7 @@ find_package(ZLIB REQUIRED)
 add_library(minigit_core
   src/add.cpp
   src/branch.cpp
+  src/checkout.cpp
   src/cli.cpp
   src/commit.cpp
   src/compression.cpp
@@ -61,6 +62,7 @@ if(MINIGIT_BUILD_TESTS)
   enable_testing()
   add_executable(minigit_tests
     tests/branch_tests.cpp
+    tests/checkout_tests.cpp
     tests/cli_tests.cpp
     tests/command_tests.cpp
     tests/commit_tests.cpp

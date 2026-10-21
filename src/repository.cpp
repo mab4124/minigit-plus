@@ -126,6 +126,11 @@ std::string Repository::head_ref() const {
   return head.substr(prefix.size());
 }
 
+void Repository::set_head(const std::string& ref) const {
+  validate_ref_name(ref);
+  write_file_atomic(git_dir() / "HEAD", "ref: " + ref + "\n");
+}
+
 std::optional<std::string> Repository::read_ref(const std::string& ref) const {
   validate_ref_name(ref);
   const fs::path path = git_dir() / ref;

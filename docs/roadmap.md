@@ -52,7 +52,7 @@ Rules for every commit:
 
 - [x] `minigit branch` (list, current marked with `*`) and `minigit branch <name>` with name validation
 - [x] Read a commit's tree into a flat path → blob map
-- [ ] `minigit checkout <branch>`: refuse when local or staged changes would be lost; update worktree, index, HEAD
+- [x] `minigit checkout <branch>`: refuse when local or staged changes would be lost; update worktree, index, HEAD
 - [ ] Tests: switching back and forth, missing refs, refused unsafe checkout, file add/remove across branches
 
 ## Day 7 — 2026-10-22 · Milestone 9: read-only history API

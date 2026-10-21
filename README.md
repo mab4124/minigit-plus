@@ -22,6 +22,7 @@ Currently implemented commands:
 | `minigit add [--] <path>...`             | Stage files or directories for the next commit |
 | `minigit branch [<name> [<start>]]`      | List branches (current marked `*`) or create one |
 | `minigit cat-file (-t\|-s\|-p) <object>`  | Show an object's type, size or contents      |
+| `minigit checkout <branch>`              | Switch branches, refusing to lose local or staged work |
 | `minigit commit -m <message>`            | Record the staged files as a new commit      |
 | `minigit config <key> [<value>]`         | Get or set `user.name` / `user.email` in `.git/config` |
 | `minigit hash-object [-w] <file>`        | Compute a blob id; `-w` also stores the blob |
@@ -100,6 +101,20 @@ Currently implemented commands:
   (a subset of its rules, see `is_valid_branch_name`). A branch is created at
   `HEAD` or at a start point given as a full id or branch/tag name; it does not
   switch to the new branch.
+- `checkout` switches between existing branches only: there is no `-b`, no
+  checking out of commits or tags (that needs a detached HEAD) and no
+  `checkout -- <path>`. Only paths that differ between the two commits are
+  touched. It refuses, before changing anything, when one of those paths has
+  staged changes, local modifications, or an untracked file or directory in
+  the way; changes to paths that are the same on both branches are carried
+  over, as in Git. A tracked file that was deleted locally is simply restored
+  (Git does the same). Symbolic links and submodules among the changed paths
+  are refused, since only regular files are supported. Updates are applied
+  file by file (each file atomically) and HEAD is written last, but the
+  checkout as a whole is not transactional: an I/O error halfway leaves the
+  worktree partly updated while HEAD still names the old branch. All blobs
+  to be written are read into memory first, so a missing object fails
+  before anything is touched.
 - Annotated tag objects are not supported. Unknown commit headers (such as
   `gpgsig`) are skipped when parsing commits written by Git.
 

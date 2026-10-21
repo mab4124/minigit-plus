@@ -54,6 +54,10 @@ class Repository {
   // Throws RepositoryError if HEAD is missing or malformed.
   std::string head_ref() const;
 
+  // Points HEAD at the branch `ref` ("ref: <ref>"), replacing the file
+  // atomically. Throws RepositoryError if `ref` is not a valid ref name.
+  void set_head(const std::string& ref) const;
+
   // The commit id stored in `ref` (e.g. "refs/heads/main"), or nullopt if the
   // ref file does not exist yet, as on a branch with no commits. Throws
   // RepositoryError if the ref name is invalid or the file does not hold a

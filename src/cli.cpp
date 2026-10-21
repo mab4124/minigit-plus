@@ -2,6 +2,7 @@
 
 #include "minigit/add.hpp"
 #include "minigit/branch.hpp"
+#include "minigit/checkout.hpp"
 #include "minigit/config.hpp"
 #include "minigit/create_commit.hpp"
 #include "minigit/file_util.hpp"
@@ -205,6 +206,25 @@ int cmd_config(CommandContext& ctx) {
   return kExitOk;
 }
 
+int cmd_checkout(CommandContext& ctx) {
+  for (const auto& arg : ctx.args) {
+    if (!arg.empty() && arg.front() == '-') {
+      ctx.err << "minigit checkout: unknown option '" << arg << "'\n";
+      return kExitUsage;
+    }
+  }
+  if (ctx.args.size() != 1) {
+    ctx.err << "usage: minigit checkout <branch>\n";
+    return kExitUsage;
+  }
+  const Repository repo = Repository::discover(fs::current_path());
+  const CheckoutResult result = checkout_branch(repo, ctx.args[0]);
+  // Like Git, these messages go to stderr.
+  ctx.err << (result.already_on ? "Already on '" : "Switched to branch '") << ctx.args[0]
+          << "'\n";
+  return kExitOk;
+}
+
 int cmd_commit(CommandContext& ctx) {
   // Several -m options become separate paragraphs, as in Git.
   std::string message;
@@ -350,6 +370,7 @@ const std::vector<Command>& commands() {
       {"add", "Stage file contents for the next commit", cmd_add},
       {"branch", "List branches or create one", cmd_branch},
       {"cat-file", "Show an object's type, size or contents", cmd_cat_file},
+      {"checkout", "Switch to another branch", cmd_checkout},
       {"commit", "Record the staged files as a new commit", cmd_commit},
       {"config", "Get or set user.name / user.email", cmd_config},
       {"hash-object", "Compute a blob id, optionally storing it (-w)", cmd_hash_object},
