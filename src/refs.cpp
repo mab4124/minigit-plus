@@ -1,6 +1,7 @@
 #include "minigit/refs.hpp"
 
 #include "minigit/hash.hpp"
+#include "minigit/tree.hpp"
 
 namespace minigit {
 namespace {
@@ -49,6 +50,11 @@ Commit read_commit(const ObjectStore& store, std::string_view oid) {
                       ", not a commit");
   }
   return parse_commit(obj.content);
+}
+
+std::map<std::string, IndexEntry> read_commit_snapshot(const ObjectStore& store,
+                                                       std::string_view oid) {
+  return flatten_tree(store, read_commit(store, oid).tree);
 }
 
 }  // namespace minigit

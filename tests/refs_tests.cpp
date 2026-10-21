@@ -19,6 +19,8 @@ using minigit::Repository;
 using minigit::RepositoryError;
 using minigit::RevisionError;
 using minigit::Signature;
+using minigit::test::git_available;
+using minigit::test::git_in;
 using minigit::test::ScopedCwd;
 using minigit::test::TempDir;
 using minigit::test::write_text;
@@ -110,6 +112,58 @@ TEST_F(RefsTest, ReadCommitChecksTheType) {
   const std::string blob = store.write(ObjectType::Blob, "x");
   EXPECT_THROW(minigit::read_commit(store, blob), ObjectError);
   EXPECT_THROW(minigit::read_commit(store, kEmptyTree), ObjectError);  // missing
+}
+
+TEST_F(RefsTest, ReadCommitSnapshotFlattensTheTree) {
+  const std::string first = commit_file("a", "1\n", "one");
+  const std::string second = commit_file("dir/sub/b c", "2\n", "two");
+
+  using Snapshot = std::map<std::string, minigit::IndexEntry>;
+  const std::string blob1 = minigit::hash_object(ObjectType::Blob, "1\n");
+  const std::string blob2 = minigit::hash_object(ObjectType::Blob, "2\n");
+  EXPECT_EQ(minigit::read_commit_snapshot(store, first), (Snapshot{{"a", {"100644", blob1}}}));
+  EXPECT_EQ(minigit::read_commit_snapshot(store, second),
+            (Snapshot{{"a", {"100644", blob1}}, {"dir/sub/b c", {"100644", blob2}}}));
+
+  EXPECT_THROW(minigit::read_commit_snapshot(store, blob1), ObjectError);       // not a commit
+  EXPECT_THROW(minigit::read_commit_snapshot(store, kEmptyTree), ObjectError);  // missing
+}
+
+TEST_F(RefsTest, ReadCommitSnapshotMatchesGitLsTree) {
+  if (!git_available()) GTEST_SKIP() << "git not installed";
+  // A commit made by real Git, with modes MiniGit++ never writes itself.
+  write_text(tmp.path() / "top.txt", "top\n");
+  write_text(tmp.path() / "src" / "deep" / "x.sh", "#!/bin/sh\n");
+  write_text(tmp.path() / "src" / "with space", "s\n");
+  write_text(tmp.path() / "src-b", "dash\n");
+  ASSERT_EQ(git_in(tmp.path(), "add .").status, 0);
+  ASSERT_EQ(git_in(tmp.path(), "update-index --chmod=+x src/deep/x.sh").status, 0);
+  const std::string link_blob = store.write(ObjectType::Blob, "top.txt");
+  ASSERT_EQ(git_in(tmp.path(), "update-index --add --cacheinfo 120000," + link_blob + ",link")
+                .status,
+            0);
+  ASSERT_EQ(git_in(tmp.path(),
+                   "-c user.name=Ada -c user.email=ada@example.com commit -q -m from-git")
+                .status,
+            0);
+  const std::string head = *repo.read_ref("refs/heads/main");
+
+  // `ls-tree -r -z`: "<mode> <type> <id>\t<path>\0" per file, unquoted.
+  const auto listing = git_in(tmp.path(), "ls-tree -r -z HEAD");
+  ASSERT_EQ(listing.status, 0);
+  std::map<std::string, minigit::IndexEntry> expected;
+  std::size_t pos = 0;
+  while (pos < listing.output.size()) {
+    auto end = listing.output.find('\0', pos);
+    if (end == std::string::npos) end = listing.output.size();
+    const std::string line = listing.output.substr(pos, end - pos);
+    const auto tab = line.find('\t');
+    ASSERT_NE(tab, std::string::npos) << line;
+    expected[line.substr(tab + 1)] = {line.substr(0, line.find(' ')), line.substr(tab - 40, 40)};
+    pos = end + 1;
+  }
+  ASSERT_EQ(expected.size(), 5u);
+  EXPECT_EQ(minigit::read_commit_snapshot(store, head), expected);
 }
 
 TEST(RefName, Validation) {

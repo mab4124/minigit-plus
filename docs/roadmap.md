@@ -51,7 +51,7 @@ Rules for every commit:
 ## Day 6 — 2026-10-21 · Milestone 8: branches and checkout
 
 - [x] `minigit branch` (list, current marked with `*`) and `minigit branch <name>` with name validation
-- [ ] Read a commit's tree into a flat path → blob map
+- [x] Read a commit's tree into a flat path → blob map
 - [ ] `minigit checkout <branch>`: refuse when local or staged changes would be lost; update worktree, index, HEAD
 - [ ] Tests: switching back and forth, missing refs, refused unsafe checkout, file add/remove across branches
 

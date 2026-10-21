@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -8,6 +9,7 @@
 #include "minigit/commit.hpp"
 #include "minigit/object_store.hpp"
 #include "minigit/repository.hpp"
+#include "minigit/staging_index.hpp"
 
 namespace minigit {
 
@@ -45,5 +47,12 @@ std::string resolve_revision(const Repository& repo, const std::string& name);
 // Reads `oid` and parses it as a commit. Throws ObjectError if the object is
 // missing, corrupt, or not a commit.
 Commit read_commit(const ObjectStore& store, std::string_view oid);
+
+// The files recorded by commit `oid`: its tree, flattened into a map from
+// '/'-separated path to mode and blob id (see flatten_tree), which is the
+// shape of the staging index. Throws ObjectError if the commit or any tree
+// below it is missing, corrupt or of the wrong type.
+std::map<std::string, IndexEntry> read_commit_snapshot(const ObjectStore& store,
+                                                       std::string_view oid);
 
 }  // namespace minigit

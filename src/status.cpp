@@ -158,7 +158,7 @@ Status compute_status(const Repository& repo) {
   status.has_commits = head.commit.has_value();
 
   std::map<std::string, IndexEntry> head_files;
-  if (head.commit) head_files = flatten_tree(store, read_commit(store, *head.commit).tree);
+  if (head.commit) head_files = read_commit_snapshot(store, *head.commit);
 
   status.staged = diff_head_index(head_files, index.entries());
   for (const auto& [path, entry] : index.entries()) {
