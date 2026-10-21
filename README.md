@@ -20,6 +20,7 @@ Currently implemented commands:
 | Command                                  | Description                                  |
 |------------------------------------------|----------------------------------------------|
 | `minigit add [--] <path>...`             | Stage files or directories for the next commit |
+| `minigit branch [<name> [<start>]]`      | List branches (current marked `*`) or create one |
 | `minigit cat-file (-t\|-s\|-p) <object>`  | Show an object's type, size or contents      |
 | `minigit commit -m <message>`            | Record the staged files as a new commit      |
 | `minigit config <key> [<value>]`         | Get or set `user.name` / `user.email` in `.git/config` |
@@ -94,6 +95,11 @@ Currently implemented commands:
     replaced by a directory, or reached through a symbolic link, is reported
     as deleted. Submodules and special files are not supported.
   - A nested repository that contains only `.git` metadata is not listed.
+- `branch` lists and creates branches only: there is no deletion, renaming,
+  `-v`, `-a` or remote branches. Names follow `git check-ref-format --branch`
+  (a subset of its rules, see `is_valid_branch_name`). A branch is created at
+  `HEAD` or at a start point given as a full id or branch/tag name; it does not
+  switch to the new branch.
 - Annotated tag objects are not supported. Unknown commit headers (such as
   `gpgsig`) are skipped when parsing commits written by Git.
 

@@ -1,6 +1,7 @@
 #include "minigit/cli.hpp"
 
 #include "minigit/add.hpp"
+#include "minigit/branch.hpp"
 #include "minigit/config.hpp"
 #include "minigit/create_commit.hpp"
 #include "minigit/file_util.hpp"
@@ -308,9 +309,46 @@ int cmd_status(CommandContext& ctx) {
   return kExitOk;
 }
 
+int cmd_branch(CommandContext& ctx) {
+  for (const auto& arg : ctx.args) {
+    if (!arg.empty() && arg.front() == '-') {
+      ctx.err << "minigit branch: unknown option '" << arg << "'\n";
+      return kExitUsage;
+    }
+  }
+  if (ctx.args.size() > 2) {
+    ctx.err << "usage: minigit branch [<name> [<start-point>]]\n";
+    return kExitUsage;
+  }
+
+  const Repository repo = Repository::discover(fs::current_path());
+  if (ctx.args.empty()) {
+    // An unborn current branch has no ref yet, so like Git it is not listed.
+    const std::string current = short_branch_name(resolve_head(repo).branch_ref);
+    for (const auto& name : list_branches(repo)) {
+      ctx.out << (name == current ? "* " : "  ") << name << '\n';
+    }
+    return kExitOk;
+  }
+
+  const std::string& name = ctx.args[0];
+  if (!is_valid_branch_name(name)) throw BranchError("'" + name + "' is not a valid branch name");
+  const std::string start = ctx.args.size() == 2 ? ctx.args[1] : "HEAD";
+  std::string oid;
+  try {
+    oid = resolve_revision(repo, start);
+  } catch (const RevisionError&) {
+    throw BranchError("not a valid object name: '" + start + "'");
+  }
+  read_commit(ObjectStore(repo.objects_dir()), oid);  // the start point must be a commit
+  create_branch(repo, name, oid);
+  return kExitOk;
+}
+
 const std::vector<Command>& commands() {
   static const std::vector<Command> table = {
       {"add", "Stage file contents for the next commit", cmd_add},
+      {"branch", "List branches or create one", cmd_branch},
       {"cat-file", "Show an object's type, size or contents", cmd_cat_file},
       {"commit", "Record the staged files as a new commit", cmd_commit},
       {"config", "Get or set user.name / user.email", cmd_config},
