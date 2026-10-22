@@ -263,6 +263,135 @@ TEST_F(ApiTest, CorruptObjectIsServerError) {
   EXPECT_EQ(r.status, 500);
 }
 
+TEST_F(ApiTest, FileHistoryListsCommitsThatChangedThePath) {
+  const std::string c1 = commit({{"src/main.cpp", "1"}, {"README", "r"}}, "add main");
+  commit({{"README", "r2"}}, "docs only");
+  const std::string c3 = commit({{"src/main.cpp", "2"}}, "edit main");
+  const std::string c4 = commit({{"src/main.cpp", std::nullopt}}, "drop main");
+
+  ApiResponse r = get("/api/file-history?path=src/main.cpp");
+  ASSERT_EQ(r.status, 200);
+  EXPECT_EQ(r.body["path"], "src/main.cpp");
+  EXPECT_EQ(r.body["branch"], "main");
+  const json& commits = r.body["commits"];
+  ASSERT_EQ(commits.size(), 3u);
+  EXPECT_EQ(commits[0]["id"], c4);
+  EXPECT_EQ(commits[0]["summary"], "drop main");
+  EXPECT_EQ(commits[0]["change"]["status"], "deleted");
+  EXPECT_EQ(commits[0]["change"]["old_blob"], store.write(ObjectType::Blob, "2"));
+  EXPECT_TRUE(commits[0]["change"]["new_blob"].is_null());
+  EXPECT_TRUE(commits[0]["change"]["new_mode"].is_null());
+  EXPECT_EQ(commits[1]["id"], c3);
+  EXPECT_EQ(commits[1]["change"]["status"], "modified");
+  EXPECT_EQ(commits[2]["id"], c1);
+  EXPECT_EQ(commits[2]["change"],
+            json({{"path", "src/main.cpp"},
+                  {"status", "added"},
+                  {"old_mode", nullptr},
+                  {"new_mode", "100644"},
+                  {"old_blob", nullptr},
+                  {"new_blob", store.write(ObjectType::Blob, "1")}}));
+
+  r = get("/api/file-history?path=src/main.cpp&limit=1");
+  ASSERT_EQ(r.body["commits"].size(), 1u);
+  EXPECT_EQ(r.body["commits"][0]["id"], c4);
+
+  // Query strings are URL-decoded, so names with spaces work.
+  const std::string c5 = commit({{"my file.txt", "x"}}, "spaces");
+  r = get("/api/file-history?path=my%20file.txt");
+  ASSERT_EQ(r.body["commits"].size(), 1u);
+  EXPECT_EQ(r.body["commits"][0]["id"], c5);
+
+  r = get("/api/file-history?path=never/there.txt");
+  EXPECT_EQ(r.status, 200);
+  EXPECT_EQ(r.body["commits"], json::array());
+}
+
+TEST_F(ApiTest, FileHistoryOnUnbornBranchIsEmpty) {
+  const ApiResponse r = get("/api/file-history?path=a.txt");
+  EXPECT_EQ(r.status, 200);
+  EXPECT_EQ(r.body["commits"], json::array());
+}
+
+TEST_F(ApiTest, FileHistoryErrors) {
+  commit({{"a.txt", "1"}}, "first");
+
+  ApiResponse r = get("/api/file-history");
+  EXPECT_EQ(r.status, 400);
+  EXPECT_EQ(r.body["error"], "missing required parameter 'path'");
+
+  r = get("/api/file-history?path=");
+  EXPECT_EQ(r.status, 400);
+
+  for (const std::string bad : {"../etc/passwd", "/abs", "a//b", "./a.txt", ".git/HEAD"}) {
+    r = get("/api/file-history?path=" + bad);
+    EXPECT_EQ(r.status, 400) << bad;
+    EXPECT_NE(r.body["error"].get<std::string>().find("invalid path"), std::string::npos) << bad;
+  }
+
+  r = get("/api/file-history?path=a.txt&limit=-5");
+  EXPECT_EQ(r.status, 400);
+}
+
+TEST_F(ApiTest, ChangedFilesBetweenCommits) {
+  const std::string c1 = commit({{"a.txt", "a"}, {"dir/b.txt", "b"}, {"gone", "g"}}, "one");
+  const std::string c2 =
+      commit({{"a.txt", "A"}, {"gone", std::nullopt}, {"dir/new.txt", "n"}}, "two");
+
+  ApiResponse r = get("/api/changed-files?from=" + c1 + "&to=" + c2);
+  ASSERT_EQ(r.status, 200);
+  EXPECT_EQ(r.body["from"], c1);
+  EXPECT_EQ(r.body["to"], c2);
+  const json& changes = r.body["changes"];
+  ASSERT_EQ(changes.size(), 3u);
+  EXPECT_EQ(changes[0]["path"], "a.txt");
+  EXPECT_EQ(changes[0]["status"], "modified");
+  EXPECT_EQ(changes[0]["old_blob"], store.write(ObjectType::Blob, "a"));
+  EXPECT_EQ(changes[0]["new_blob"], store.write(ObjectType::Blob, "A"));
+  EXPECT_EQ(changes[1]["path"], "dir/new.txt");
+  EXPECT_EQ(changes[1]["status"], "added");
+  EXPECT_EQ(changes[2]["path"], "gone");
+  EXPECT_EQ(changes[2]["status"], "deleted");
+
+  // Branch names and HEAD resolve too; a commit against itself is empty.
+  r = get("/api/changed-files?from=" + c1 + "&to=main");
+  EXPECT_EQ(r.body["to"], c2);
+  EXPECT_EQ(r.body["changes"].size(), 3u);
+  r = get("/api/changed-files?from=HEAD&to=" + c2);
+  EXPECT_EQ(r.status, 200);
+  EXPECT_EQ(r.body["changes"], json::array());
+
+  // Reversed, additions and deletions swap.
+  r = get("/api/changed-files?from=" + c2 + "&to=" + c1);
+  EXPECT_EQ(r.body["changes"][1]["status"], "deleted");
+  EXPECT_EQ(r.body["changes"][2]["status"], "added");
+}
+
+TEST_F(ApiTest, ChangedFilesErrors) {
+  const std::string c1 = commit({{"a.txt", "a"}}, "one");
+
+  ApiResponse r = get("/api/changed-files?to=" + c1);
+  EXPECT_EQ(r.status, 400);
+  EXPECT_EQ(r.body["error"], "missing required parameter 'from'");
+
+  r = get("/api/changed-files?from=" + c1);
+  EXPECT_EQ(r.status, 400);
+  EXPECT_EQ(r.body["error"], "missing required parameter 'to'");
+
+  r = get("/api/changed-files?from=" + c1 + "&to=no-such-branch");
+  EXPECT_EQ(r.status, 404);
+  EXPECT_EQ(r.body["error"], "unknown revision 'no-such-branch'");
+
+  r = get("/api/changed-files?from=" + std::string(40, 'b') + "&to=" + c1);
+  EXPECT_EQ(r.status, 404);
+  EXPECT_EQ(r.body["error"], "commit " + std::string(40, 'b') + " not found");
+
+  const std::string blob = store.write(ObjectType::Blob, "a");
+  r = get("/api/changed-files?from=" + c1 + "&to=" + blob);
+  EXPECT_EQ(r.status, 404);
+  EXPECT_EQ(r.body["error"], "'" + blob + "' is a blob, not a commit");
+}
+
 // Real Git must agree with the API about the history and its metadata.
 TEST_F(ApiTest, LogMatchesGitOracle) {
   if (!git_available()) GTEST_SKIP() << "git not installed";

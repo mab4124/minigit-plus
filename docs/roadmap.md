@@ -59,7 +59,7 @@ Rules for every commit:
 
 - [x] Add cpp-httplib and nlohmann/json via FetchContent; `minigit serve [--port N]` bound to 127.0.0.1
 - [x] `GET /health`, `GET /api/log?limit=`, `GET /api/commit/<hash>`
-- [ ] `GET /api/file-history?path=&limit=` and `GET /api/changed-files?from=&to=` (on-demand traversal)
+- [x] `GET /api/file-history?path=&limit=` and `GET /api/changed-files?from=&to=` (on-demand traversal)
 - [ ] Integration tests for every endpoint including error responses; `curl` examples in README
 
 ## Day 8 — 2026-10-23 · Milestone 10: file-history index and experiment

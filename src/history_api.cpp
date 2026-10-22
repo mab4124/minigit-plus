@@ -9,9 +9,11 @@
 #include <optional>
 
 #include "minigit/hash.hpp"
+#include "minigit/history.hpp"
 #include "minigit/log.hpp"
 #include "minigit/object_store.hpp"
 #include "minigit/refs.hpp"
+#include "minigit/staging_index.hpp"
 
 namespace minigit {
 namespace {
@@ -66,6 +68,44 @@ json commit_json(const std::string& oid, const Commit& commit) {
           {"committer", signature_json(commit.committer)},
           {"summary", std::string(message.substr(0, message.find('\n')))},
           {"message", commit.message}};
+}
+
+json change_json(const FileChange& change) {
+  auto field = [](const std::optional<IndexEntry>& entry, std::string IndexEntry::*member) {
+    return entry ? json((*entry).*member) : json(nullptr);
+  };
+  return {{"path", change.path},
+          {"status", to_string(change.kind)},
+          {"old_mode", field(change.old_entry, &IndexEntry::mode)},
+          {"new_mode", field(change.new_entry, &IndexEntry::mode)},
+          {"old_blob", field(change.old_entry, &IndexEntry::oid)},
+          {"new_blob", field(change.new_entry, &IndexEntry::oid)}};
+}
+
+// A required, non-empty query parameter.
+std::string required_param(const httplib::Request& req, const std::string& name) {
+  std::string value = req.has_param(name) ? req.get_param_value(name) : "";
+  if (value.empty()) throw ClientError{400, "missing required parameter '" + name + "'"};
+  return value;
+}
+
+// Resolves a `from`/`to` parameter (full id, HEAD, branch or tag name) to a
+// commit id; 404 if it names nothing or something other than a commit.
+std::string resolve_commit_param(const Repository& repo, const ObjectStore& store,
+                                 const std::string& name) {
+  std::string oid;
+  try {
+    oid = resolve_revision(repo, name);
+  } catch (const RevisionError& e) {
+    throw ClientError{404, e.what()};
+  }
+  if (!store.contains(oid)) throw ClientError{404, "commit " + oid + " not found"};
+  const RawObject obj = store.read(oid);
+  if (obj.type != ObjectType::Commit) {
+    throw ClientError{404, "'" + name + "' is a " + std::string(to_string(obj.type)) +
+                               ", not a commit"};
+  }
+  return oid;
 }
 
 // cpp-httplib's default sets SO_REUSEPORT on Linux, which lets a second
@@ -137,6 +177,47 @@ HistoryServer::HistoryServer(Repository repository)
                                  ", not a commit"};
     }
     send_json(res, 200, commit_json(oid, parse_commit(obj.content)));
+  });
+
+  // The commits on the current branch's first-parent line that changed one
+  // file, newest first. Traverses history on every request.
+  server.Get("/api/file-history", [repo](const httplib::Request& req, httplib::Response& res) {
+    const std::string path = required_param(req, "path");
+    try {
+      StagingIndex::validate_path(path);
+    } catch (const IndexError& e) {
+      throw ClientError{400, "invalid path: " + std::string(e.what())};
+    }
+    const std::size_t limit = limit_param(req, kDefaultLimit);
+    const HeadState head = resolve_head(*repo);
+    json commits = json::array();
+    if (head.commit) {
+      for (const auto& entry :
+           file_history(ObjectStore(repo->objects_dir()), *head.commit, path, limit)) {
+        json item = commit_json(entry.oid, entry.commit);
+        item["change"] = change_json(entry.change);
+        commits.push_back(std::move(item));
+      }
+    }
+    send_json(res, 200,
+              {{"path", path},
+               {"branch", short_branch_name(head.branch_ref)},
+               {"commits", std::move(commits)}});
+  });
+
+  // The files that differ between two commits' snapshots.
+  server.Get("/api/changed-files", [repo](const httplib::Request& req, httplib::Response& res) {
+    const std::string from_name = required_param(req, "from");
+    const std::string to_name = required_param(req, "to");
+    const ObjectStore store(repo->objects_dir());
+    const std::string from = resolve_commit_param(*repo, store, from_name);
+    const std::string to = resolve_commit_param(*repo, store, to_name);
+    json changes = json::array();
+    for (const auto& change :
+         diff_trees(store, read_commit(store, from).tree, read_commit(store, to).tree)) {
+      changes.push_back(change_json(change));
+    }
+    send_json(res, 200, {{"from", from}, {"to", to}, {"changes", std::move(changes)}});
   });
 
   // Unknown paths and unsupported methods get a JSON body too. Handlers that

@@ -39,6 +39,18 @@ inline constexpr std::size_t kMaxLimit = 1000;
 //                              list on a branch with no commits
 //   GET /api/commit/<id>       one commit; 400 unless <id> is a full id, 404
 //                              if it is missing or not a commit
+//   GET /api/file-history?path=P&limit=N
+//                              {"path", "branch", "commits": [commit + "change"]}:
+//                              commits on the first-parent line of the current
+//                              branch that changed file P (see file_history)
+//   GET /api/changed-files?from=A&to=B
+//                              {"from", "to", "changes": [change...]}: files that
+//                              differ between commits A and B (full ids, HEAD,
+//                              branch or tag names), sorted by path
+//
+// A change is {"path", "status" (added/modified/deleted), "old_mode",
+// "new_mode", "old_blob", "new_blob"}, with null for the side that has no
+// file. Both history endpoints traverse objects on every request.
 //
 // A commit is {"id", "tree", "parents", "author", "committer", "summary",
 // "message"}; author and committer are {"name", "email", "timestamp",
