@@ -86,8 +86,8 @@ TEST_F(HistoryTest, DiffAgainstNothingListsEveryFile) {
   const std::string c1 = commit({{"b.txt", "b"}, {"a/x.txt", "x"}}, "one");
   const auto changes = minigit::diff_trees(store, std::nullopt, tree_of(c1));
   ASSERT_EQ(changes.size(), 2u);
-  EXPECT_EQ(changes[0],
-            (FileChange{"a/x.txt", ChangeKind::Added, std::nullopt, IndexEntry{"100644", blob("x")}}));
+  EXPECT_EQ(changes[0], (FileChange{"a/x.txt", ChangeKind::Added, std::nullopt,
+                                    IndexEntry{"100644", blob("x")}}));
   EXPECT_EQ(changes[1].path, "b.txt");
 }
 
@@ -125,10 +125,8 @@ TEST_F(HistoryTest, DiffModeChangeIsModification) {
 TEST_F(HistoryTest, DiffFileReplacedByDirectory) {
   const std::string c1 = commit({{"a", "file"}, {"a.txt", "t"}}, "one");
   const std::string c2 = commit({{"a/inner", "i"}}, "two");  // staging a/inner drops file a
-  EXPECT_EQ(name_status(minigit::diff_trees(store, tree_of(c1), tree_of(c2))),
-            "D\ta\nA\ta/inner");
-  EXPECT_EQ(name_status(minigit::diff_trees(store, tree_of(c2), tree_of(c1))),
-            "A\ta\nD\ta/inner");
+  EXPECT_EQ(name_status(minigit::diff_trees(store, tree_of(c1), tree_of(c2))), "D\ta\nA\ta/inner");
+  EXPECT_EQ(name_status(minigit::diff_trees(store, tree_of(c2), tree_of(c1))), "A\ta\nD\ta/inner");
 }
 
 TEST_F(HistoryTest, DiffSkipsUnchangedSubtreesWithoutReadingThem) {
@@ -156,9 +154,9 @@ TEST_F(HistoryTest, LookupPath) {
   EXPECT_EQ(minigit::lookup_path(store, tree, "src/main.cpp"),
             (IndexEntry{"100644", blob("int main")}));
   EXPECT_EQ(minigit::lookup_path(store, tree, "README"), (IndexEntry{"100644", blob("r")}));
-  EXPECT_FALSE(minigit::lookup_path(store, tree, "src"));            // a directory
+  EXPECT_FALSE(minigit::lookup_path(store, tree, "src"));  // a directory
   EXPECT_FALSE(minigit::lookup_path(store, tree, "src/missing"));
-  EXPECT_FALSE(minigit::lookup_path(store, tree, "README/below"));   // through a file
+  EXPECT_FALSE(minigit::lookup_path(store, tree, "README/below"));  // through a file
   EXPECT_FALSE(minigit::lookup_path(store, tree, "nope/main.cpp"));
 }
 
@@ -201,8 +199,8 @@ TEST_F(HistoryTest, FileHistoryAttributesMergedChangesToTheMerge) {
   const std::string base = commit({{"f", "1"}}, "base");
   // A side commit changing f, and a merge whose first parent is `base`.
   Commit side;
-  side.tree = store.write(ObjectType::Tree,
-                          minigit::serialize_tree({{"100644", "f", blob("side")}}));
+  side.tree =
+      store.write(ObjectType::Tree, minigit::serialize_tree({{"100644", "f", blob("side")}}));
   side.parents = {base};
   side.author = side.committer = author;
   side.message = "side\n";

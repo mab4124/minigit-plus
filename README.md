@@ -161,6 +161,31 @@ Limitations of the history endpoints:
   file replaced by a directory is a deletion plus additions. A mode-only change
   is reported as `modified`.
 
+Example session (start the server in one terminal, query it from another):
+
+```sh
+cd my-project
+minigit serve --port 8080
+# Serving the history of /home/me/my-project at http://127.0.0.1:8080/
+
+curl -s http://127.0.0.1:8080/health
+curl -s 'http://127.0.0.1:8080/api/log?limit=5'
+curl -s http://127.0.0.1:8080/api/commit/<full-commit-id>
+curl -s 'http://127.0.0.1:8080/api/file-history?path=src/main.cpp&limit=20'
+curl -s 'http://127.0.0.1:8080/api/changed-files?from=<old-id>&to=main'
+
+# Errors carry a status code and a message (bodies are pretty-printed JSON):
+curl -s -w '%{http_code}\n' http://127.0.0.1:8080/api/commit/abc123
+# {
+#   "error": "'abc123' is not a full 40-character commit id"
+# }
+# 400
+```
+
+Paths with spaces or other special characters must be URL-encoded
+(`path=my%20file.txt`). The test `ServeCommand.CurlExamplesWorkEndToEnd` runs
+these requests with `curl` against the real executable.
+
 The server still reads a repository stored on the server's disk; it is an
 experiment inspired by Scion, not an implementation of it.
 

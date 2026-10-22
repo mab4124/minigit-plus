@@ -8,8 +8,11 @@
 #include <optional>
 #include <sstream>
 #include <thread>
+#include <utility>
+#include <vector>
 
 #include "minigit/cli.hpp"
+#include "minigit/commit.hpp"
 #include "minigit/create_commit.hpp"
 #include "minigit/history_api.hpp"
 #include "minigit/object_store.hpp"
@@ -284,13 +287,12 @@ TEST_F(ApiTest, FileHistoryListsCommitsThatChangedThePath) {
   EXPECT_EQ(commits[1]["id"], c3);
   EXPECT_EQ(commits[1]["change"]["status"], "modified");
   EXPECT_EQ(commits[2]["id"], c1);
-  EXPECT_EQ(commits[2]["change"],
-            json({{"path", "src/main.cpp"},
-                  {"status", "added"},
-                  {"old_mode", nullptr},
-                  {"new_mode", "100644"},
-                  {"old_blob", nullptr},
-                  {"new_blob", store.write(ObjectType::Blob, "1")}}));
+  EXPECT_EQ(commits[2]["change"], json({{"path", "src/main.cpp"},
+                                        {"status", "added"},
+                                        {"old_mode", nullptr},
+                                        {"new_mode", "100644"},
+                                        {"old_blob", nullptr},
+                                        {"new_blob", store.write(ObjectType::Blob, "1")}}));
 
   r = get("/api/file-history?path=src/main.cpp&limit=1");
   ASSERT_EQ(r.body["commits"].size(), 1u);
@@ -405,12 +407,55 @@ TEST_F(ApiTest, LogMatchesGitOracle) {
   std::string expected;
   for (const auto& c : r.body["commits"]) {
     if (!expected.empty()) expected += '\n';
-    expected += c["id"].get<std::string>() + '\t' + c["author"]["name"].get<std::string>() +
-                '\t' + c["author"]["email"].get<std::string>() + '\t' +
+    expected += c["id"].get<std::string>() + '\t' + c["author"]["name"].get<std::string>() + '\t' +
+                c["author"]["email"].get<std::string>() + '\t' +
                 std::to_string(c["author"]["timestamp"].get<std::int64_t>()) + '\t' +
                 c["author"]["date"].get<std::string>() + '\t' + c["summary"].get<std::string>();
   }
   EXPECT_EQ(git.output, expected);
+}
+
+// Every error, whatever produced it, is a JSON object with an "error" string.
+TEST_F(ApiTest, EveryErrorResponseIsJson) {
+  const std::string c1 = commit({{"a.txt", "1"}}, "first");
+  const std::string blob = store.write(ObjectType::Blob, "1");
+  const std::vector<std::pair<std::string, int>> cases = {
+      {"/", 404},
+      {"/api", 404},
+      {"/api/log/extra", 404},
+      {"/api/log?limit=x", 400},
+      {"/api/commit/xyz", 400},
+      {"/api/commit/" + std::string(40, 'g'), 400},
+      {"/api/commit/" + c1 + "/files", 404},
+      {"/api/commit/" + std::string(40, 'f'), 404},
+      {"/api/commit/" + blob, 404},
+      {"/api/file-history", 400},
+      {"/api/file-history?path=a.txt&limit=1001", 400},
+      {"/api/file-history?path=%2e%2e/x", 400},
+      {"/api/changed-files", 400},
+      {"/api/changed-files?from=a..b&to=HEAD", 404},
+      {"/api/changed-files?from=" + blob + "&to=HEAD", 404},
+  };
+  for (const auto& [target, status] : cases) {
+    const ApiResponse r = get(target);
+    EXPECT_EQ(r.status, status) << target;
+    EXPECT_EQ(r.content_type, "application/json") << target;
+    EXPECT_TRUE(r.body.is_object() && r.body["error"].is_string()) << target << ": " << r.body;
+  }
+
+  const auto del = client_->Delete("/api/log");
+  ASSERT_TRUE(del);
+  EXPECT_EQ(del->status, 404);
+  EXPECT_EQ(json::parse(del->body)["error"], "no such endpoint: DELETE /api/log");
+}
+
+// A detached or malformed HEAD is a server-side problem, reported as a 500.
+TEST_F(ApiTest, MalformedHeadIsServerError) {
+  write_text(repo.git_dir() / "HEAD", "garbage\n");
+  const ApiResponse r = get("/api/log");
+  EXPECT_EQ(r.status, 500);
+  EXPECT_TRUE(r.body["error"].is_string());
+  EXPECT_EQ(get("/health").status, 200);  // the server keeps running
 }
 
 TEST(HistoryServerTest, ListenWithoutBindThrows) {
@@ -449,36 +494,137 @@ TEST(ServeCommand, FailsOutsideRepository) {
 }
 
 #ifndef _WIN32
+// Runs the real executable's `serve --port 0` in `dir` in the background for
+// the object's lifetime, reading the port it prints. POSIX only.
+class ServeProcess {
+ public:
+  explicit ServeProcess(const fs::path& dir)
+      : log_(dir.parent_path() / (dir.filename().string() + ".serve.out")) {
+    const auto started = run_command("cd " + quote(dir) + " && " + quote(MINIGIT_EXE) +
+                                     " serve --port 0 > " + quote(log_) + " 2>&1 & echo $!");
+    if (started.status != 0) return;
+    pid_ = std::stoi(started.output);
+    // The first line is "Serving the history of <dir> at http://127.0.0.1:<port>/".
+    for (int i = 0; i < 200 && port_ == 0; ++i) {
+      const std::string text = read_text(log_);
+      const auto at = text.find("http://127.0.0.1:");
+      if (at != std::string::npos && text.find('/', at + 17) != std::string::npos) {
+        port_ = std::stoi(text.substr(at + 17));
+      } else {
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+      }
+    }
+  }
+  ~ServeProcess() {
+    if (pid_ > 0) kill(pid_, SIGTERM);
+    std::error_code ec;
+    fs::remove(log_, ec);
+  }
+  ServeProcess(const ServeProcess&) = delete;
+  ServeProcess& operator=(const ServeProcess&) = delete;
+
+  int port() const { return port_; }
+  std::string output() const { return read_text(log_); }
+  std::string url() const { return "http://127.0.0.1:" + std::to_string(port_); }
+
+ private:
+  fs::path log_;
+  pid_t pid_ = -1;
+  int port_ = 0;
+};
+
 // Starts the real executable, reads the port it prints and talks to it, so
 // the whole `minigit serve` path (argument parsing, bind, listen) is covered.
 TEST(ServeCommand, RealExecutableServesOnLoopback) {
   TempDir tmp;
   Repository::init(tmp.path());
-  const auto log = tmp.path() / "serve.out";
-  const auto started = run_command("cd " + quote(tmp.path()) + " && " + quote(MINIGIT_EXE) +
-                                   " serve --port 0 > " + quote(log) + " 2>&1 & echo $!");
-  ASSERT_EQ(started.status, 0);
-  const pid_t pid = std::stoi(started.output);
+  const ServeProcess serve(tmp.path());
+  ASSERT_NE(serve.port(), 0) << "server did not start; output:\n" << serve.output();
+  httplib::Client client(minigit::kServeHost, serve.port());
+  const ApiResponse r = get_json(client, "/health");
+  EXPECT_EQ(r.status, 200);
+  EXPECT_EQ(r.body["status"], "ok");
+}
 
-  // The first line is "Serving the history of <dir> at http://127.0.0.1:<port>/".
-  int port = 0;
-  for (int i = 0; i < 200 && port == 0; ++i) {
-    const std::string text = read_text(log);
-    const auto at = text.find("http://127.0.0.1:");
-    if (at != std::string::npos && text.find('/', at + 17) != std::string::npos) {
-      port = std::stoi(text.substr(at + 17));
-    } else {
-      std::this_thread::sleep_for(std::chrono::milliseconds(25));
-    }
+// The README's curl examples, run against a repository built entirely with
+// the minigit executable: every endpoint and its main error responses.
+TEST(ServeCommand, CurlExamplesWorkEndToEnd) {
+  if (run_command("curl --version > /dev/null 2>&1").status != 0) {
+    GTEST_SKIP() << "curl not installed";
   }
-  if (port != 0) {
-    httplib::Client client(minigit::kServeHost, port);
-    const ApiResponse r = get_json(client, "/health");
-    EXPECT_EQ(r.status, 200);
-    EXPECT_EQ(r.body["status"], "ok");
-  }
-  kill(pid, SIGTERM);
-  ASSERT_NE(port, 0) << "server did not start; output:\n" << read_text(log);
+  TempDir tmp;
+  const auto minigit = [&](const std::string& args) {
+    return run_command("cd " + quote(tmp.path()) + " && " + quote(MINIGIT_EXE) + " " + args +
+                       " 2>&1");
+  };
+  ASSERT_EQ(minigit("init").status, 0);
+  ASSERT_EQ(minigit("config user.name 'Ada Lovelace'").status, 0);
+  ASSERT_EQ(minigit("config user.email ada@example.com").status, 0);
+  write_text(tmp.path() / "src" / "main.cpp", "int main() {}\n");
+  write_text(tmp.path() / "README.md", "# demo\n");
+  ASSERT_EQ(minigit("add src README.md").status, 0);
+  ASSERT_EQ(minigit("commit -m 'Initial commit'").status, 0);
+  write_text(tmp.path() / "src" / "main.cpp", "int main() { return 0; }\n");
+  ASSERT_EQ(minigit("add src/main.cpp").status, 0);
+  ASSERT_EQ(minigit("commit -m 'Return 0 from main'").status, 0);
+
+  const Repository repo = Repository::discover(tmp.path());
+  const std::string head = *repo.read_ref("refs/heads/main");
+  const std::string first =
+      minigit::parse_commit(ObjectStore(repo.objects_dir()).read(head).content).parents.at(0);
+
+  const ServeProcess serve(tmp.path());
+  ASSERT_NE(serve.port(), 0) << "server did not start; output:\n" << serve.output();
+
+  // Returns the status code and parsed body of `curl -s <url><target>`.
+  const auto curl = [&](const std::string& target) {
+    const auto body_file = tmp.path().parent_path() / (tmp.path().filename().string() + ".body");
+    const auto r = run_command("curl -s --noproxy '*' -o " + quote(body_file) +
+                               " -w '%{http_code}' '" + serve.url() + target + "'");
+    ApiResponse out;
+    out.status = r.status == 0 ? std::stoi(r.output) : -1;
+    out.body = json::parse(read_text(body_file), nullptr, false);
+    fs::remove(body_file);
+    return out;
+  };
+
+  ApiResponse r = curl("/health");
+  EXPECT_EQ(r.status, 200);
+  EXPECT_EQ(r.body["status"], "ok");
+
+  r = curl("/api/log?limit=20");
+  EXPECT_EQ(r.status, 200);
+  ASSERT_EQ(r.body["commits"].size(), 2u);
+  EXPECT_EQ(r.body["commits"][0]["summary"], "Return 0 from main");
+  EXPECT_EQ(r.body["commits"][0]["author"]["name"], "Ada Lovelace");
+
+  r = curl("/api/commit/" + head);
+  EXPECT_EQ(r.status, 200);
+  EXPECT_EQ(r.body["parents"], json::array({first}));
+
+  r = curl("/api/file-history?path=src/main.cpp&limit=20");
+  EXPECT_EQ(r.status, 200);
+  ASSERT_EQ(r.body["commits"].size(), 2u);
+  EXPECT_EQ(r.body["commits"][0]["change"]["status"], "modified");
+  EXPECT_EQ(r.body["commits"][1]["change"]["status"], "added");
+
+  r = curl("/api/file-history?path=README.md");
+  ASSERT_EQ(r.body["commits"].size(), 1u);
+  EXPECT_EQ(r.body["commits"][0]["id"], first);
+
+  r = curl("/api/changed-files?from=" + first + "&to=" + head);
+  EXPECT_EQ(r.status, 200);
+  ASSERT_EQ(r.body["changes"].size(), 1u);
+  EXPECT_EQ(r.body["changes"][0]["path"], "src/main.cpp");
+
+  EXPECT_EQ(curl("/api/commit/abc").status, 400);
+  EXPECT_EQ(curl("/api/commit/" + std::string(40, '0')).status, 404);
+  EXPECT_EQ(curl("/api/log?limit=lots").status, 400);
+  EXPECT_EQ(curl("/api/file-history").status, 400);
+  EXPECT_EQ(curl("/api/changed-files?from=HEAD&to=nope").status, 404);
+  r = curl("/nope");
+  EXPECT_EQ(r.status, 404);
+  EXPECT_TRUE(r.body.contains("error"));
 }
 #endif
 
