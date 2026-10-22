@@ -58,7 +58,7 @@ Rules for every commit:
 ## Day 7 — 2026-10-22 · Milestone 9: read-only history API
 
 - [x] Add cpp-httplib and nlohmann/json via FetchContent; `minigit serve [--port N]` bound to 127.0.0.1
-- [ ] `GET /health`, `GET /api/log?limit=`, `GET /api/commit/<hash>`
+- [x] `GET /health`, `GET /api/log?limit=`, `GET /api/commit/<hash>`
 - [ ] `GET /api/file-history?path=&limit=` and `GET /api/changed-files?from=&to=` (on-demand traversal)
 - [ ] Integration tests for every endpoint including error responses; `curl` examples in README
 

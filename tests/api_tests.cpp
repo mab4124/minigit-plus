@@ -3,26 +3,38 @@
 
 #include <chrono>
 #include <csignal>
+#include <map>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <sstream>
 #include <thread>
 
 #include "minigit/cli.hpp"
+#include "minigit/create_commit.hpp"
 #include "minigit/history_api.hpp"
+#include "minigit/object_store.hpp"
 #include "minigit/repository.hpp"
+#include "minigit/staging_index.hpp"
 #include "test_support.hpp"
 
 namespace {
 
 using minigit::HistoryServer;
+using minigit::ObjectStore;
+using minigit::ObjectType;
 using minigit::Repository;
 using minigit::ServerError;
+using minigit::Signature;
+using minigit::test::git_available;
+using minigit::test::git_in;
 using minigit::test::quote;
 using minigit::test::read_text;
 using minigit::test::run_command;
 using minigit::test::ScopedCwd;
 using minigit::test::TempDir;
+using minigit::test::write_text;
 using nlohmann::json;
+namespace fs = std::filesystem;
 
 struct CliResult {
   int code;
@@ -61,8 +73,26 @@ class ApiTest : public ::testing::Test {
  protected:
   TempDir tmp;
   Repository repo = Repository::init(tmp.path());
+  ObjectStore store{repo.objects_dir()};
+  Signature author{"Ada Lovelace", "ada@example.com", 1700000000, "+0530"};
 
   void SetUp() override { start(); }
+
+  // Stages `files` (path -> content; an empty optional deletes) and commits.
+  std::string commit(const std::map<std::string, std::optional<std::string>>& files,
+                     const std::string& message) {
+    auto index = minigit::StagingIndex::load(repo.index_path());
+    for (const auto& [path, text] : files) {
+      if (text) {
+        index.stage(path, {"100644", store.write(ObjectType::Blob, *text)});
+      } else {
+        index.remove(path);
+      }
+    }
+    index.save();
+    author.timestamp += 60;
+    return minigit::create_commit(repo, message, author).oid;
+  }
   void TearDown() override { stop(); }
 
   void start() {
@@ -110,6 +140,148 @@ TEST_F(ApiTest, ServerIsReadOnly) {
 TEST_F(ApiTest, SecondServerOnSamePortFails) {
   HistoryServer other(repo);
   EXPECT_THROW(other.bind(minigit::kServeHost, port_), ServerError);
+}
+
+TEST_F(ApiTest, LogOnUnbornBranchIsEmpty) {
+  const ApiResponse r = get("/api/log");
+  EXPECT_EQ(r.status, 200);
+  EXPECT_EQ(r.body["branch"], "main");
+  EXPECT_TRUE(r.body["head"].is_null());
+  EXPECT_EQ(r.body["commits"], json::array());
+}
+
+TEST_F(ApiTest, LogListsFirstParentHistoryNewestFirst) {
+  const std::string c1 = commit({{"a.txt", "1\n"}}, "first");
+  const std::string c2 = commit({{"a.txt", "2\n"}}, "second\n\nwith a body");
+  const std::string c3 = commit({{"b.txt", "b\n"}}, "third");
+
+  ApiResponse r = get("/api/log");
+  ASSERT_EQ(r.status, 200);
+  EXPECT_EQ(r.body["head"], c3);
+  ASSERT_EQ(r.body["commits"].size(), 3u);
+  EXPECT_EQ(r.body["commits"][0]["id"], c3);
+  EXPECT_EQ(r.body["commits"][1]["id"], c2);
+  EXPECT_EQ(r.body["commits"][2]["id"], c1);
+  EXPECT_EQ(r.body["commits"][1]["summary"], "second");
+  EXPECT_EQ(r.body["commits"][1]["message"], "second\n\nwith a body\n");
+  EXPECT_EQ(r.body["commits"][1]["parents"], json::array({c1}));
+  EXPECT_EQ(r.body["commits"][2]["parents"], json::array());
+
+  r = get("/api/log?limit=2");
+  ASSERT_EQ(r.body["commits"].size(), 2u);
+  EXPECT_EQ(r.body["commits"][1]["id"], c2);
+
+  r = get("/api/log?limit=0");
+  EXPECT_EQ(r.body["commits"], json::array());
+}
+
+TEST_F(ApiTest, LogSeesCommitsMadeWhileServing) {
+  commit({{"a.txt", "1\n"}}, "first");
+  EXPECT_EQ(get("/api/log").body["commits"].size(), 1u);
+  const std::string c2 = commit({{"a.txt", "2\n"}}, "second");
+  const ApiResponse r = get("/api/log");
+  EXPECT_EQ(r.body["head"], c2);
+  EXPECT_EQ(r.body["commits"].size(), 2u);
+}
+
+TEST_F(ApiTest, LogDefaultsToTwentyCommits) {
+  for (std::size_t i = 0; i < minigit::kDefaultLimit + 2; ++i) {
+    commit({{"n.txt", std::to_string(i)}}, "commit " + std::to_string(i));
+  }
+  EXPECT_EQ(get("/api/log").body["commits"].size(), minigit::kDefaultLimit);
+}
+
+TEST_F(ApiTest, LogRejectsInvalidLimits) {
+  for (const std::string bad : {"-1", "abc", "", "5x", "1001", "99999999999999999999999"}) {
+    const ApiResponse r = get("/api/log?limit=" + bad);
+    EXPECT_EQ(r.status, 400) << bad;
+    EXPECT_NE(r.body["error"].get<std::string>().find("limit must be a whole number"),
+              std::string::npos)
+        << bad;
+  }
+  EXPECT_EQ(get("/api/log?limit=1000").status, 200);
+}
+
+TEST_F(ApiTest, CommitReturnsOneCommit) {
+  const std::string c1 = commit({{"a.txt", "1\n"}}, "first");
+  const std::string c2 = commit({{"a.txt", "2\n"}}, "second");
+
+  ApiResponse r = get("/api/commit/" + c2);
+  ASSERT_EQ(r.status, 200);
+  EXPECT_EQ(r.body["id"], c2);
+  EXPECT_EQ(r.body["parents"], json::array({c1}));
+  EXPECT_EQ(r.body["summary"], "second");
+  EXPECT_EQ(r.body["author"]["name"], "Ada Lovelace");
+  EXPECT_EQ(r.body["author"]["email"], "ada@example.com");
+  EXPECT_EQ(r.body["author"]["timestamp"], author.timestamp);
+  EXPECT_EQ(r.body["author"]["timezone"], "+0530");
+  EXPECT_EQ(r.body["committer"], r.body["author"]);
+
+  // Upper-case ids are accepted and answered with the canonical id.
+  std::string upper = c1;
+  for (char& c : upper) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+  r = get("/api/commit/" + upper);
+  EXPECT_EQ(r.status, 200);
+  EXPECT_EQ(r.body["id"], c1);
+}
+
+TEST_F(ApiTest, CommitErrors) {
+  const std::string c1 = commit({{"a.txt", "1\n"}}, "first");
+
+  ApiResponse r = get("/api/commit/" + c1.substr(0, 7));
+  EXPECT_EQ(r.status, 400);
+  EXPECT_NE(r.body["error"].get<std::string>().find("not a full 40-character commit id"),
+            std::string::npos);
+
+  r = get("/api/commit/main");  // ref names are not accepted here
+  EXPECT_EQ(r.status, 400);
+
+  r = get("/api/commit/");
+  EXPECT_EQ(r.status, 400);
+
+  r = get("/api/commit/" + std::string(40, 'a'));
+  EXPECT_EQ(r.status, 404);
+  EXPECT_EQ(r.body["error"], "commit " + std::string(40, 'a') + " not found");
+
+  const std::string blob = store.write(ObjectType::Blob, "1\n");
+  r = get("/api/commit/" + blob);
+  EXPECT_EQ(r.status, 404);
+  EXPECT_EQ(r.body["error"], "object " + blob + " is a blob, not a commit");
+}
+
+TEST_F(ApiTest, CorruptObjectIsServerError) {
+  const std::string c1 = commit({{"a.txt", "1\n"}}, "first");
+  const fs::path file = store.object_path(c1);
+  fs::permissions(file, fs::perms::owner_write, fs::perm_options::add);
+  write_text(file, "not zlib data");
+
+  ApiResponse r = get("/api/commit/" + c1);
+  EXPECT_EQ(r.status, 500);
+  EXPECT_NE(r.body["error"].get<std::string>().find("is corrupt"), std::string::npos);
+
+  r = get("/api/log");
+  EXPECT_EQ(r.status, 500);
+}
+
+// Real Git must agree with the API about the history and its metadata.
+TEST_F(ApiTest, LogMatchesGitOracle) {
+  if (!git_available()) GTEST_SKIP() << "git not installed";
+  commit({{"a.txt", "1\n"}}, "first");
+  commit({{"dir/b.txt", "b\n"}}, "second");
+  commit({{"a.txt", std::nullopt}}, "third");
+
+  const auto git = git_in(tmp.path(), "log --format=%H%x09%an%x09%ae%x09%at%x09%ad%x09%s");
+  ASSERT_EQ(git.status, 0);
+  const ApiResponse r = get("/api/log");
+  std::string expected;
+  for (const auto& c : r.body["commits"]) {
+    if (!expected.empty()) expected += '\n';
+    expected += c["id"].get<std::string>() + '\t' + c["author"]["name"].get<std::string>() +
+                '\t' + c["author"]["email"].get<std::string>() + '\t' +
+                std::to_string(c["author"]["timestamp"].get<std::int64_t>()) + '\t' +
+                c["author"]["date"].get<std::string>() + '\t' + c["summary"].get<std::string>();
+  }
+  EXPECT_EQ(git.output, expected);
 }
 
 TEST(HistoryServerTest, ListenWithoutBindThrows) {

@@ -131,9 +131,16 @@ checkout. Every request re-reads refs and objects, so new commits show up
 immediately. Responses are JSON; errors are `{"error": "..."}` with a 4xx or
 5xx status.
 
-| Endpoint      | Response                |
-|---------------|-------------------------|
-| `GET /health` | `{"status": "ok"}`      |
+| Endpoint                     | Response |
+|------------------------------|----------|
+| `GET /health`                | `{"status": "ok"}` |
+| `GET /api/log?limit=20`      | `{"branch", "head", "commits": [...]}`: the current branch's first-parent history, newest first. `limit` defaults to 20 and must be 0–1000 |
+| `GET /api/commit/<id>`       | One commit. `<id>` must be a full 40-character id (400 otherwise); 404 if missing or not a commit |
+
+A commit is returned as `{"id", "tree", "parents", "author", "committer",
+"summary", "message"}`, where `author` and `committer` are `{"name", "email",
+"timestamp", "timezone", "date"}` and `date` uses `git log`'s format. A corrupt
+object or unreadable ref gives a 500 with the reason.
 
 The server still reads a repository stored on the server's disk; it is an
 experiment inspired by Scion, not an implementation of it.

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -19,6 +20,10 @@ class ServerError : public std::runtime_error {
 inline constexpr const char* kServeHost = "127.0.0.1";
 inline constexpr int kDefaultServePort = 8080;
 
+// The `limit` query parameter's default and largest accepted value.
+inline constexpr std::size_t kDefaultLimit = 20;
+inline constexpr std::size_t kMaxLimit = 1000;
+
 // A read-only HTTP/JSON view of a repository's history (milestone 9).
 //
 // Every request reads the repository's objects and refs afresh, so commits
@@ -27,7 +32,17 @@ inline constexpr int kDefaultServePort = 8080;
 // with a 4xx/5xx status.
 //
 // Endpoints:
-//   GET /health   {"status": "ok"}
+//   GET /health                {"status": "ok"}
+//   GET /api/log?limit=N       {"branch", "head", "commits": [commit...]}: the
+//                              current branch's first-parent history, newest
+//                              first (default 20, at most kMaxLimit); an empty
+//                              list on a branch with no commits
+//   GET /api/commit/<id>       one commit; 400 unless <id> is a full id, 404
+//                              if it is missing or not a commit
+//
+// A commit is {"id", "tree", "parents", "author", "committer", "summary",
+// "message"}; author and committer are {"name", "email", "timestamp",
+// "timezone", "date"} with `date` in `git log`'s format.
 //
 // The HTTP library is hidden behind a pointer so that only history_api.cpp
 // has to compile it.
