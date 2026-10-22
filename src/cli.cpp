@@ -6,6 +6,7 @@
 #include "minigit/config.hpp"
 #include "minigit/create_commit.hpp"
 #include "minigit/file_util.hpp"
+#include "minigit/history_api.hpp"
 #include "minigit/log.hpp"
 #include "minigit/object_store.hpp"
 #include "minigit/refs.hpp"
@@ -307,6 +308,39 @@ int cmd_log(CommandContext& ctx) {
   return kExitOk;
 }
 
+int cmd_serve(CommandContext& ctx) {
+  int port = kDefaultServePort;
+  for (std::size_t i = 0; i < ctx.args.size(); ++i) {
+    const std::string& arg = ctx.args[i];
+    std::string_view value;
+    if (arg == "--port" && i + 1 < ctx.args.size()) {
+      value = ctx.args[++i];
+    } else if (arg.rfind("--port=", 0) == 0) {
+      value = std::string_view(arg).substr(7);
+    } else {
+      if (arg != "--port") ctx.err << "minigit serve: unexpected argument '" << arg << "'\n";
+      ctx.err << "usage: minigit serve [--port <port>]\n";
+      return kExitUsage;
+    }
+    const auto parsed = parse_count(value);
+    if (!parsed || *parsed > 65535) {
+      ctx.err << "minigit serve: '" << value << "' is not a valid port (0-65535)\n";
+      return kExitUsage;
+    }
+    port = static_cast<int>(*parsed);
+  }
+
+  const Repository repo = Repository::discover(fs::current_path());
+  HistoryServer server(repo);
+  // Always the loopback address: the API is unauthenticated.
+  const int bound = server.bind(kServeHost, port);
+  ctx.out << "Serving the history of " << repo.worktree().generic_string() << " at http://"
+          << kServeHost << ':' << bound << "/\nPress Ctrl+C to stop.\n"
+          << std::flush;
+  server.listen();
+  return kExitOk;
+}
+
 int cmd_status(CommandContext& ctx) {
   bool short_format = false;
   for (const auto& arg : ctx.args) {
@@ -377,6 +411,7 @@ const std::vector<Command>& commands() {
       {"help", "Show this help message", cmd_help},
       {"init", "Create an empty repository", cmd_init},
       {"log", "Show the commit history of the current branch", cmd_log},
+      {"serve", "Serve a read-only JSON history API on localhost", cmd_serve},
       {"status", "Show staged, modified, deleted and untracked files", cmd_status},
       {"version", "Show the MiniGit++ version", cmd_version},
   };

@@ -29,6 +29,7 @@ Currently implemented commands:
 | `minigit help`                           | Show the list of commands                    |
 | `minigit init [dir]`                     | Create an empty repository                   |
 | `minigit log [-n <count>]`               | Show the current branch's history, newest first |
+| `minigit serve [--port <port>]`          | Serve a read-only JSON history API on `127.0.0.1` (default port 8080; 0 picks a free one) |
 | `minigit status [-s\|--short]`           | Show staged, modified, deleted and untracked files |
 | `minigit version`                        | Print the MiniGit++ version                  |
 
@@ -115,8 +116,27 @@ Currently implemented commands:
   worktree partly updated while HEAD still names the old branch. All blobs
   to be written are read into memory first, so a missing object fails
   before anything is touched.
+- `serve` always binds to `127.0.0.1` and speaks plain HTTP with no
+  authentication, so it is meant for local use only; there is no option to
+  listen on other interfaces. It never writes to the repository. See
+  [History API](#history-api) for the endpoints.
 - Annotated tag objects are not supported. Unknown commit headers (such as
   `gpgsig`) are skipped when parsing commits written by Git.
+
+## History API
+
+`minigit serve` starts a small read-only HTTP service for the repository it is
+run in, so that a script or CI job can ask about history without its own
+checkout. Every request re-reads refs and objects, so new commits show up
+immediately. Responses are JSON; errors are `{"error": "..."}` with a 4xx or
+5xx status.
+
+| Endpoint      | Response                |
+|---------------|-------------------------|
+| `GET /health` | `{"status": "ok"}`      |
+
+The server still reads a repository stored on the server's disk; it is an
+experiment inspired by Scion, not an implementation of it.
 
 ## Building
 
@@ -127,7 +147,9 @@ Requirements:
 - OpenSSL (SHA-1) and zlib (object compression) development packages
 - SQLite development package (needed by a later milestone)
 
-GoogleTest is downloaded automatically by CMake.
+GoogleTest, [cpp-httplib](https://github.com/yhirose/cpp-httplib) and
+[nlohmann/json](https://github.com/nlohmann/json) are downloaded automatically
+by CMake (cpp-httplib with `git`, so `git` must be installed when configuring).
 
 ### Linux (Ubuntu)
 
