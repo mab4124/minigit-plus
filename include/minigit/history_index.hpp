@@ -92,6 +92,19 @@ class HistoryIndex {
   // indexed or changed nothing.
   std::vector<FileChange> changes(std::string_view oid) const;
 
+  // The same result as minigit::file_history(store, start, path, limit),
+  // answered from the index, or nullopt if `start` is not indexed (the
+  // caller should then traverse). The rows for `path` are found by key and
+  // sorted by depth; the first-parent line of `start` is then followed in
+  // the index (not in the objects) only as far as needed to tell which rows
+  // lie on it, and only the commits returned are read from `store`. Throws
+  // HistoryIndexError for database failures and ObjectError if a returned
+  // commit is missing or corrupt.
+  std::optional<std::vector<FileHistoryEntry>> file_history(const ObjectStore& store,
+                                                            const std::string& start,
+                                                            std::string_view path,
+                                                            std::size_t limit) const;
+
  private:
   struct Closer {
     void operator()(sqlite3* db) const;
@@ -106,5 +119,16 @@ class HistoryIndex {
   fs::path final_path_;
   fs::path build_path_;
 };
+
+// file_history() answered from the index at `db_path` when it exists and
+// covers `start`, otherwise by traversing objects. `used_index` (if given)
+// reports which one happened. An index that cannot be opened or read is
+// treated as absent, since it is only derived data; there is no partial use
+// of an index that lags behind `start`.
+std::vector<FileHistoryEntry> file_history_with_index(const fs::path& db_path,
+                                                      const ObjectStore& store,
+                                                      const std::string& start,
+                                                      std::string_view path, std::size_t limit,
+                                                      bool* used_index = nullptr);
 
 }  // namespace minigit

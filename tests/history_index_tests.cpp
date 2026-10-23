@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <cstdlib>
 #include <map>
 #include <optional>
+#include <random>
 #include <sstream>
 
 #include "minigit/branch.hpp"
@@ -259,6 +261,199 @@ TEST_F(HistoryIndexTest, CorruptFileIsReplaced) {
 TEST_F(HistoryIndexTest, OpenExistingNeverCreatesAFile) {
   EXPECT_FALSE(HistoryIndex::open_existing(db_path));
   EXPECT_FALSE(fs::exists(db_path));
+}
+
+// Index answers and traversal answers must be identical.
+void expect_same_history(const std::vector<minigit::FileHistoryEntry>& traversal,
+                         const std::vector<minigit::FileHistoryEntry>& indexed,
+                         const std::string& context) {
+  ASSERT_EQ(indexed.size(), traversal.size()) << context;
+  for (std::size_t i = 0; i < traversal.size(); ++i) {
+    EXPECT_EQ(indexed[i].oid, traversal[i].oid) << context << " #" << i;
+    EXPECT_EQ(indexed[i].commit, traversal[i].commit) << context << " #" << i;
+    EXPECT_EQ(indexed[i].change, traversal[i].change) << context << " #" << i;
+  }
+}
+
+TEST_F(HistoryIndexTest, FileHistoryFromIndexOrderAndLimit) {
+  const std::string c1 = commit({{"f.txt", "1"}, {"other", "o"}}, "add");
+  commit({{"other", "o2"}}, "unrelated");
+  const std::string c3 = commit({{"f.txt", "2"}}, "modify");
+  const std::string c4 = commit({{"f.txt", std::nullopt}}, "delete");
+  const std::string c5 = commit({{"f.txt", "3"}}, "re-add");
+  HistoryIndex index = HistoryIndex::open_for_update(db_path);
+  index.update(repo);
+
+  const auto history = index.file_history(store, c5, "f.txt", 100);
+  ASSERT_TRUE(history);
+  std::vector<std::string> ids;
+  for (const auto& e : *history) ids.push_back(e.oid);
+  EXPECT_EQ(ids, (std::vector<std::string>{c5, c4, c3, c1}));
+  EXPECT_EQ((*history)[1].change.kind, minigit::ChangeKind::Deleted);
+  EXPECT_EQ((*history)[3].commit.message, "add\n");
+  EXPECT_EQ(index.file_history(store, c5, "f.txt", 2)->size(), 2u);
+  EXPECT_TRUE(index.file_history(store, c5, "f.txt", 0)->empty());
+  EXPECT_TRUE(index.file_history(store, c5, "never", 10)->empty());
+  // Starting further back hides newer commits.
+  EXPECT_EQ(index.file_history(store, c3, "f.txt", 100)->size(), 2u);
+  // A commit the index has never seen: the caller must traverse.
+  EXPECT_FALSE(index.file_history(store, std::string(40, 'b'), "f.txt", 100));
+}
+
+TEST_F(HistoryIndexTest, FileHistoryFromIndexSkipsOtherBranches) {
+  const std::string base = commit({{"f", "1"}}, "base");
+  const std::string m1 = commit({{"f", "main 1"}}, "main 1");
+  const std::string m2 = commit({{"f", "main 2"}}, "main 2");
+  minigit::create_branch(repo, "side", base);
+  repo.set_head("refs/heads/side");
+  const std::string s1 = commit({{"f", "side 1"}}, "side 1");  // same depth as m1
+  HistoryIndex index = HistoryIndex::open_for_update(db_path);
+  index.update(repo);
+
+  auto ids = [&](const std::string& start) {
+    std::vector<std::string> out;
+    const auto history = index.file_history(store, start, "f", 100);
+    for (const auto& e : history.value()) out.push_back(e.oid);
+    return out;
+  };
+  EXPECT_EQ(ids(m2), (std::vector<std::string>{m2, m1, base}));
+  EXPECT_EQ(ids(s1), (std::vector<std::string>{s1, base}));
+}
+
+// A pseudo-random history over a small set of paths, with several branches
+// and hand-made merges, checked path by path against traversal from every
+// commit. MINIGIT_LONG_TESTS=1 (set by the nightly workflow) makes it larger.
+TEST_F(HistoryIndexTest, IndexAndTraversalAgreeOnGeneratedHistory) {
+  const bool long_run = std::getenv("MINIGIT_LONG_TESTS") != nullptr;
+  const int kCommits = long_run ? 1500 : 120;
+  const std::vector<std::string> paths = {"a.txt",   "b.txt",       "src/main.cpp", "src/util.cpp",
+                                          "src/lib/x.h", "docs/readme", "p",        "p/q"};
+  std::mt19937 rng(20261023);
+  auto pick = [&](std::size_t n) { return static_cast<std::size_t>(rng() % n); };
+
+  std::vector<std::string> branches = {"main"};
+  std::vector<std::string> all_commits;
+  int merges = 0;
+  commit({{"a.txt", "start"}}, "root");
+  all_commits.push_back(*repo.read_ref("refs/heads/main"));
+  // Indexed halfway through and again at the end, so the incremental path is
+  // covered too.
+  HistoryIndex index = HistoryIndex::open_for_update(db_path);
+  for (int i = 0; i < kCommits; ++i) {
+    if (i == kCommits / 2) index.update(repo);
+    const auto roll = pick(12);
+    if (roll == 0 && branches.size() < 6) {
+      // Start a new branch at the current commit and switch to it.
+      const std::string name = "b" + std::to_string(i);
+      minigit::create_branch(repo, name, minigit::resolve_head(repo).commit.value());
+      repo.set_head("refs/heads/" + name);
+      branches.push_back(name);
+      continue;
+    }
+    if (roll == 1) {
+      repo.set_head("refs/heads/" + branches[pick(branches.size())]);
+    }
+    if ((roll == 2 || roll == 3) && branches.size() > 1) {
+      // Merge another branch's tip: the tree of one side, two parents.
+      const std::string head = minigit::resolve_head(repo).commit.value();
+      const std::string other =
+          repo.read_ref("refs/heads/" + branches[pick(branches.size())]).value();
+      if (other != head) {
+        minigit::Commit merge = minigit::read_commit(store, other);
+        merge.parents = {head, other};
+        author.timestamp += 60;
+        merge.author = merge.committer = author;
+        merge.message = "merge\n";
+        const std::string oid =
+            store.write(ObjectType::Commit, minigit::serialize_commit(merge));
+        repo.write_ref(minigit::resolve_head(repo).branch_ref, oid);
+        // Keep the staging index in step with the new tree.
+        auto staged = minigit::StagingIndex::load(repo.index_path());
+        for (const auto& path : staged.paths_under("")) staged.remove(path);
+        for (const auto& [path, entry] : minigit::read_commit_snapshot(store, oid)) {
+          staged.stage(path, entry);
+        }
+        staged.save();
+        all_commits.push_back(oid);
+        ++merges;
+        continue;
+      }
+    }
+    Files files;
+    const auto n = 1 + pick(3);
+    for (std::size_t k = 0; k < n; ++k) {
+      const std::string& path = paths[pick(paths.size())];
+      if (pick(5) == 0) {
+        files[path] = std::nullopt;
+      } else {
+        files[path] = "v" + std::to_string(pick(4));  // values repeat: modify back and forth
+      }
+    }
+    // p and p/q cannot both exist: staging one drops the other.
+    if (files.contains("p") && files.contains("p/q")) files.erase("p");
+    try {
+      all_commits.push_back(commit(files, "commit " + std::to_string(i)));
+    } catch (const minigit::CommitError&) {
+      // Nothing changed (e.g. the same values were staged again).
+    }
+  }
+
+  index.update(repo);
+  ASSERT_GT(index.commit_count(), 1u);
+  // The generator really produced the shapes this test is about.
+  EXPECT_GT(branches.size(), 2u);
+  EXPECT_GT(merges, 3);
+
+  std::vector<std::string> queries = paths;
+  queries.insert(queries.end(), {"src", "src/lib", "missing.txt"});
+  std::size_t checked = 0;
+  for (const auto& start : all_commits) {
+    if (!index.contains(start)) continue;  // only reachable through a merge
+    for (const auto& path : queries) {
+      for (const std::size_t limit : {std::size_t{1}, std::size_t{3}, std::size_t{100000}}) {
+        if (!long_run && limit == 3 && pick(4) != 0) continue;
+        const auto indexed = index.file_history(store, start, path, limit);
+        ASSERT_TRUE(indexed);
+        expect_same_history(minigit::file_history(store, start, path, limit), *indexed,
+                            start + " " + path + " limit " + std::to_string(limit));
+        ++checked;
+      }
+    }
+  }
+  EXPECT_GT(checked, 100u);
+}
+
+TEST_F(HistoryIndexTest, WithIndexFallsBackWhenStaleMissingOrBroken) {
+  const std::string c1 = commit({{"f", "1"}}, "one");
+  bool used = true;
+  // No index yet.
+  auto history = minigit::file_history_with_index(db_path, store, c1, "f", 10, &used);
+  EXPECT_FALSE(used);
+  EXPECT_EQ(history.size(), 1u);
+  EXPECT_FALSE(fs::exists(db_path));  // reading never creates it
+
+  HistoryIndex::open_for_update(db_path).update(repo);
+  history = minigit::file_history_with_index(db_path, store, c1, "f", 10, &used);
+  EXPECT_TRUE(used);
+  EXPECT_EQ(history.size(), 1u);
+
+  // A commit made after indexing is not covered: traverse, and see it.
+  const std::string c2 = commit({{"f", "2"}}, "two");
+  history = minigit::file_history_with_index(db_path, store, c2, "f", 10, &used);
+  EXPECT_FALSE(used);
+  ASSERT_EQ(history.size(), 2u);
+  EXPECT_EQ(history[0].oid, c2);
+
+  HistoryIndex::open_for_update(db_path).update(repo);
+  expect_same_history(minigit::file_history(store, c2, "f", 10),
+                      minigit::file_history_with_index(db_path, store, c2, "f", 10, &used),
+                      "after update");
+  EXPECT_TRUE(used);
+
+  write_text(db_path, "garbage garbage garbage garbage garbage garbage garbage garbage");
+  history = minigit::file_history_with_index(db_path, store, c2, "f", 10, &used);
+  EXPECT_FALSE(used);
+  EXPECT_EQ(history.size(), 2u);
 }
 
 TEST(HistoryIndexCommand, IndexesAndRebuilds) {

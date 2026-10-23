@@ -150,7 +150,7 @@ immediately. Responses are JSON; errors are `{"error": "..."}` with a 4xx or
 | `GET /health`                | `{"status": "ok"}` |
 | `GET /api/log?limit=20`      | `{"branch", "head", "commits": [...]}`: the current branch's first-parent history, newest first. `limit` defaults to 20 and must be 0–1000 |
 | `GET /api/commit/<id>`       | One commit. `<id>` must be a full 40-character id (400 otherwise); 404 if missing or not a commit |
-| `GET /api/file-history?path=src/main.cpp&limit=20` | `{"path", "branch", "commits": [...]}`: commits on the current branch that changed the file, newest first, each with a `change` |
+| `GET /api/file-history?path=src/main.cpp&limit=20` | `{"path", "branch", "source", "commits": [...]}`: commits on the current branch that changed the file, newest first, each with a `change`. `source` is `index` or `traversal` (see below) |
 | `GET /api/changed-files?from=<rev>&to=<rev>` | `{"from", "to", "changes": [...]}`: files that differ between two commits, sorted by path. `from`/`to` take a full id, `HEAD` or a branch/tag name |
 
 A commit is returned as `{"id", "tree", "parents", "author", "committer",
@@ -162,10 +162,20 @@ object or unreadable ref gives a 500 with the reason. A change is `{"path",
 
 Limitations of the history endpoints:
 
-- They traverse objects on every request: `file-history` walks the branch's
-  first-parent line and looks the path up in each commit's tree (reading only
-  the trees along the path), and `changed-files` compares the two root trees,
-  skipping subtrees whose ids match. Nothing is cached yet.
+- Without an index they traverse objects on every request: `file-history`
+  walks the branch's first-parent line and looks the path up in each commit's
+  tree (reading only the trees along the path), and `changed-files` compares
+  the two root trees, skipping subtrees whose ids match.
+- After `minigit index`, `file-history` is answered from
+  `.git/minigit/history.db` whenever the index contains `HEAD` (`"source":
+  "index"`): the rows for the path are looked up by key, `HEAD`'s first-parent
+  line is followed in the index to discard other branches' rows, and only the
+  returned commits are read from the object store. The answer is the same as
+  traversal's (tests compare the two on generated histories). If `HEAD` has
+  moved past the indexed commits, the index is missing or it cannot be read,
+  the server traverses instead (`"source": "traversal"`); it never writes the
+  index itself, so run `minigit index` again after committing. A lagging
+  index is not partly used. `changed-files` always traverses.
 - `file-history` follows first parents only and compares each commit with its
   first parent, so a change merged from another branch is reported at the
   merge commit (like `git log --first-parent -- <path>`). It always starts at

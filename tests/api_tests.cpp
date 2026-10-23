@@ -15,6 +15,7 @@
 #include "minigit/commit.hpp"
 #include "minigit/create_commit.hpp"
 #include "minigit/history_api.hpp"
+#include "minigit/history_index.hpp"
 #include "minigit/object_store.hpp"
 #include "minigit/repository.hpp"
 #include "minigit/staging_index.hpp"
@@ -307,6 +308,43 @@ TEST_F(ApiTest, FileHistoryListsCommitsThatChangedThePath) {
   r = get("/api/file-history?path=never/there.txt");
   EXPECT_EQ(r.status, 200);
   EXPECT_EQ(r.body["commits"], json::array());
+}
+
+TEST_F(ApiTest, FileHistoryUsesTheIndexWhenItCoversHead) {
+  commit({{"src/main.cpp", "1"}, {"README", "r"}}, "add main");
+  commit({{"README", "r2"}}, "docs only");
+  commit({{"src/main.cpp", "2"}}, "edit main");
+  const std::string target = "/api/file-history?path=src/main.cpp";
+
+  const ApiResponse traversed = get(target);
+  ASSERT_EQ(traversed.status, 200);
+  EXPECT_EQ(traversed.body["source"], "traversal");
+  EXPECT_FALSE(fs::exists(minigit::HistoryIndex::default_path(repo)));  // never created by reads
+
+  minigit::HistoryIndex::open_for_update(minigit::HistoryIndex::default_path(repo)).update(repo);
+  ApiResponse indexed = get(target);
+  ASSERT_EQ(indexed.status, 200);
+  EXPECT_EQ(indexed.body["source"], "index");
+  json a = traversed.body, b = indexed.body;
+  a.erase("source");
+  b.erase("source");
+  EXPECT_EQ(a, b);  // identical answers
+  EXPECT_EQ(get(target + "&limit=1").body["commits"].size(), 1u);
+
+  // A new commit is not in the index yet: the server traverses and sees it.
+  const std::string c4 = commit({{"src/main.cpp", "3"}}, "edit again");
+  ApiResponse stale = get(target);
+  EXPECT_EQ(stale.body["source"], "traversal");
+  ASSERT_EQ(stale.body["commits"].size(), 3u);
+  EXPECT_EQ(stale.body["commits"][0]["id"], c4);
+
+  // A broken index is ignored rather than reported.
+  write_text(minigit::HistoryIndex::default_path(repo),
+             "not a database, not a database, not a database, not a database");
+  const ApiResponse broken = get(target);
+  EXPECT_EQ(broken.status, 200);
+  EXPECT_EQ(broken.body["source"], "traversal");
+  EXPECT_EQ(broken.body["commits"], stale.body["commits"]);
 }
 
 TEST_F(ApiTest, FileHistoryOnUnbornBranchIsEmpty) {

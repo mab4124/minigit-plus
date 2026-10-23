@@ -261,6 +261,49 @@ std::vector<FileChange> HistoryIndex::changes(std::string_view oid) const {
   return out;
 }
 
+std::optional<std::vector<FileHistoryEntry>> HistoryIndex::file_history(
+    const ObjectStore& store, const std::string& start, std::string_view path,
+    std::size_t limit) const {
+  sqlite3* db = db_.get();
+  Statement lookup(db, "SELECT parent, depth FROM commits WHERE oid = ?1");
+  lookup.bind(1, start);
+  if (!lookup.step()) return std::nullopt;
+  std::optional<std::string> parent = lookup.text(0);
+  std::int64_t depth = lookup.integer(1);
+  lookup.reset();
+
+  std::vector<FileHistoryEntry> history;
+  if (limit == 0) return history;
+
+  // Every indexed commit that changed `path` and is not newer than `start`,
+  // deepest first. Other branches' commits are among them and are skipped
+  // by following `start`'s line down to each row's depth.
+  Statement rows(db,
+                 "SELECT ch.commit_oid, c.depth, ch.status, ch.old_mode, ch.old_blob, "
+                 "ch.new_mode, ch.new_blob FROM changes ch JOIN commits c ON c.oid = "
+                 "ch.commit_oid WHERE ch.path = ?1 AND c.depth <= ?2 ORDER BY c.depth DESC");
+  rows.bind(1, path).bind(2, depth);
+  std::string current = start;  // the commit on start's line at `depth`
+  while (history.size() < limit && rows.step()) {
+    const std::string oid = rows.text(0).value_or("");
+    const std::int64_t row_depth = rows.integer(1);
+    while (depth > row_depth) {
+      if (!parent) throw HistoryIndexError("history index is inconsistent at " + current);
+      current = *parent;
+      lookup.bind(1, current);
+      if (!lookup.step()) throw HistoryIndexError("history index is missing commit " + current);
+      parent = lookup.text(0);
+      depth = lookup.integer(1);
+      lookup.reset();
+    }
+    if (oid != current) continue;
+    FileChange change{std::string(path), parse_kind(rows.text(2)), entry_from(rows, 3, 4),
+                      entry_from(rows, 5, 6)};
+    history.push_back({oid, read_commit(store, oid), std::move(change)});
+  }
+  return history;
+}
+
 IndexUpdate HistoryIndex::update(const Repository& repo) {
   const ObjectStore store(repo.objects_dir());
   sqlite3* db = db_.get();
@@ -373,6 +416,25 @@ IndexUpdate HistoryIndex::update(const Repository& repo) {
   }
   result.total_commits = commit_count();
   return result;
+}
+
+std::vector<FileHistoryEntry> file_history_with_index(const fs::path& db_path,
+                                                      const ObjectStore& store,
+                                                      const std::string& start,
+                                                      std::string_view path, std::size_t limit,
+                                                      bool* used_index) {
+  if (used_index) *used_index = false;
+  std::optional<std::vector<FileHistoryEntry>> indexed;
+  try {
+    if (const auto index = HistoryIndex::open_existing(db_path)) {
+      indexed = index->file_history(store, start, path, limit);
+    }
+  } catch (const HistoryIndexError&) {
+    indexed.reset();  // a broken index is ignored, not reported
+  }
+  if (!indexed) return minigit::file_history(store, start, path, limit);
+  if (used_index) *used_index = true;
+  return std::move(*indexed);
 }
 
 }  // namespace minigit

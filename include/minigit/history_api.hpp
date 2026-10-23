@@ -40,9 +40,12 @@ inline constexpr std::size_t kMaxLimit = 1000;
 //   GET /api/commit/<id>       one commit; 400 unless <id> is a full id, 404
 //                              if it is missing or not a commit
 //   GET /api/file-history?path=P&limit=N
-//                              {"path", "branch", "commits": [commit + "change"]}:
-//                              commits on the first-parent line of the current
-//                              branch that changed file P (see file_history)
+//                              {"path", "branch", "source", "commits":
+//                              [commit + "change"]}: commits on the first-parent
+//                              line of the current branch that changed file P
+//                              (see file_history). "source" is "index" when the
+//                              answer came from .git/minigit/history.db (used
+//                              when it covers HEAD) and "traversal" otherwise
 //   GET /api/changed-files?from=A&to=B
 //                              {"from", "to", "changes": [change...]}: files that
 //                              differ between commits A and B (full ids, HEAD,
@@ -50,7 +53,8 @@ inline constexpr std::size_t kMaxLimit = 1000;
 //
 // A change is {"path", "status" (added/modified/deleted), "old_mode",
 // "new_mode", "old_blob", "new_blob"}, with null for the side that has no
-// file. Both history endpoints traverse objects on every request.
+// file. changed-files always traverses objects; file-history does unless
+// the index covers HEAD. The server never writes the index.
 //
 // A commit is {"id", "tree", "parents", "author", "committer", "summary",
 // "message"}; author and committer are {"name", "email", "timestamp",

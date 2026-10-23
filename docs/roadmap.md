@@ -65,6 +65,6 @@ Rules for every commit:
 ## Day 8 — 2026-10-23 · Milestone 10: file-history index and experiment
 
 - [x] SQLite index (`.git/minigit/history.db`): commits and changed paths with old/new blob ids; `minigit index [--rebuild]`, incremental
-- [ ] File-history API uses the index when present and fresh, falls back to traversal otherwise; equivalence tests
+- [x] File-history API uses the index when present and fresh, falls back to traversal otherwise; equivalence tests
 - [ ] `benchmarks/history_benchmark.cpp` on generated repositories; results in `docs/experiment-results.md`
 - [ ] `.github/workflows/nightly.yml` (`30 18 * * *` + `workflow_dispatch`): long tests, generated repos, perf smoke test, artifact upload; `docs/architecture.md`

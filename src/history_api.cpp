@@ -10,6 +10,7 @@
 
 #include "minigit/hash.hpp"
 #include "minigit/history.hpp"
+#include "minigit/history_index.hpp"
 #include "minigit/log.hpp"
 #include "minigit/object_store.hpp"
 #include "minigit/refs.hpp"
@@ -180,7 +181,8 @@ HistoryServer::HistoryServer(Repository repository)
   });
 
   // The commits on the current branch's first-parent line that changed one
-  // file, newest first. Traverses history on every request.
+  // file, newest first. Answered from .git/minigit/history.db when it covers
+  // HEAD, otherwise by traversing history; "source" says which.
   server.Get("/api/file-history", [repo](const httplib::Request& req, httplib::Response& res) {
     const std::string path = required_param(req, "path");
     try {
@@ -191,9 +193,12 @@ HistoryServer::HistoryServer(Repository repository)
     const std::size_t limit = limit_param(req, kDefaultLimit);
     const HeadState head = resolve_head(*repo);
     json commits = json::array();
+    bool used_index = false;
     if (head.commit) {
       for (const auto& entry :
-           file_history(ObjectStore(repo->objects_dir()), *head.commit, path, limit)) {
+           file_history_with_index(HistoryIndex::default_path(*repo),
+                                   ObjectStore(repo->objects_dir()), *head.commit, path, limit,
+                                   &used_index)) {
         json item = commit_json(entry.oid, entry.commit);
         item["change"] = change_json(entry.change);
         commits.push_back(std::move(item));
@@ -202,6 +207,7 @@ HistoryServer::HistoryServer(Repository repository)
     send_json(res, 200,
               {{"path", path},
                {"branch", short_branch_name(head.branch_ref)},
+               {"source", used_index ? "index" : "traversal"},
                {"commits", std::move(commits)}});
   });
 
