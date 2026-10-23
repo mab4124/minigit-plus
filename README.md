@@ -14,7 +14,8 @@ The original concepts come from
 
 ## Status
 
-Development follows the roadmap in [`docs/roadmap.md`](docs/roadmap.md).
+Development follows the roadmap in [`docs/roadmap.md`](docs/roadmap.md); the
+design is described in [`docs/architecture.md`](docs/architecture.md).
 Currently implemented commands:
 
 | Command                                  | Description                                  |
@@ -270,6 +271,18 @@ cmake --build build-release
 Measured results and what they mean are in
 [`docs/experiment-results.md`](docs/experiment-results.md). A tiny run
 (`history_benchmark_smoke`) is part of `ctest`.
+
+## Continuous integration
+
+- `ci.yml` builds and tests every push and pull request (Debug, Release and
+  ASan/UBSan).
+- `nightly.yml` runs at 18:30 UTC (midnight IST) and on manual dispatch: the
+  test suite with `MINIGIT_LONG_TESTS=1` (larger generated histories), the
+  sanitizer suite three times, the history benchmark on generated
+  repositories of 1,000 and 5,000 commits and `minigit index` on a generated
+  repository. Logs and benchmark tables are uploaded as workflow artifacts;
+  the workflow never commits anything. Timings are recorded, not gated,
+  because shared runners are noisy.
 
 ## Exit codes
 

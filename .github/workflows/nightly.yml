@@ -1,0 +1,116 @@
+name: Nightly
+
+# 18:30 UTC is midnight IST. Scheduled runs can start late (or be skipped
+# when GitHub is busy), so nothing here depends on the exact start time.
+on:
+  schedule:
+    - cron: "30 18 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  long-tests:
+    name: long tests (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The full suite with MINIGIT_LONG_TESTS=1: larger generated
+          # histories for the index-versus-traversal equivalence test.
+          - name: release-long
+            build_type: Release
+            sanitize: "OFF"
+            long: "1"
+          # The regular suite under ASan/UBSan, repeated to shake out
+          # order- or timing-dependent failures in the server tests.
+          - name: asan-ubsan-repeat
+            build_type: Debug
+            sanitize: "ON"
+            long: ""
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build libssl-dev zlib1g-dev libsqlite3-dev
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DMINIGIT_SANITIZE=${{ matrix.sanitize }}
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        env:
+          MINIGIT_LONG_TESTS: ${{ matrix.long }}
+        run: |
+          mkdir -p nightly-output
+          repeat=""
+          if [ "${{ matrix.sanitize }}" = "ON" ]; then repeat="--repeat until-fail:3"; fi
+          ctest --test-dir build --output-on-failure --parallel 4 $repeat \
+            --output-junit "$PWD/nightly-output/ctest-${{ matrix.name }}.xml" \
+            2>&1 | tee "nightly-output/ctest-${{ matrix.name }}.log"
+          exit "${PIPESTATUS[0]}"
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ matrix.name }}
+          path: nightly-output/
+          retention-days: 14
+
+  benchmark:
+    name: performance smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build libssl-dev zlib1g-dev libsqlite3-dev
+
+      - name: Build (Release, no tests)
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMINIGIT_BUILD_TESTS=OFF
+          cmake --build build --parallel --target history_benchmark minigit
+
+      # Generated repositories of two sizes. The benchmark exits non-zero if
+      # indexed answers ever differ from traversal or the rebuilt index does
+      # not match; timings are recorded but not gated, because shared runners
+      # are too noisy for a threshold.
+      - name: Run the history benchmark
+        run: |
+          mkdir -p bench-output
+          for commits in 1000 5000; do
+            ./build/history_benchmark --commits "$commits" --files 200 --repeats 5 \
+              | tee "bench-output/history-$commits.md"
+          done
+          cat bench-output/*.md >> "$GITHUB_STEP_SUMMARY"
+
+      # The command-line path end to end on a generated repository.
+      - name: Index a generated repository with the CLI
+        run: |
+          ./build/history_benchmark --commits 300 --files 50 --repeats 1 --keep "$RUNNER_TEMP/repo" > /dev/null
+          cd "$RUNNER_TEMP/repo"
+          "$GITHUB_WORKSPACE/build/minigit" index --rebuild | tee -a "$GITHUB_WORKSPACE/bench-output/cli.log"
+          "$GITHUB_WORKSPACE/build/minigit" index | tee -a "$GITHUB_WORKSPACE/bench-output/cli.log"
+          "$GITHUB_WORKSPACE/build/minigit" log -n 3 | tee -a "$GITHUB_WORKSPACE/bench-output/cli.log"
+
+      - name: Upload benchmark output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-output
+          path: bench-output/
+          retention-days: 30
