@@ -12,7 +12,7 @@
 
 namespace {
 
-using minigit::ChangeKind;
+using minigit::StatusKind;
 using minigit::ObjectError;
 using minigit::ObjectStore;
 using minigit::ObjectType;
@@ -139,9 +139,9 @@ TEST_F(StatusTest, StagedChangesCompareHeadWithIndex) {
   add(".");
   const auto s = status();
   EXPECT_TRUE(s.has_commits);
-  EXPECT_EQ(s.staged, (Entries{{"change", ChangeKind::Modified},
-                               {"new", ChangeKind::Added},
-                               {"remove", ChangeKind::Deleted}}));
+  EXPECT_EQ(s.staged, (Entries{{"change", StatusKind::Modified},
+                               {"new", StatusKind::Added},
+                               {"remove", StatusKind::Deleted}}));
   EXPECT_TRUE(s.unstaged.empty());
   EXPECT_TRUE(s.untracked.empty());
 }
@@ -150,7 +150,7 @@ TEST_F(StatusTest, BeforeTheFirstCommitEverythingStagedIsNew) {
   write("a", "a\n");
   write("d/b", "b\n");
   add(".");
-  EXPECT_EQ(status().staged, (Entries{{"a", ChangeKind::Added}, {"d/b", ChangeKind::Added}}));
+  EXPECT_EQ(status().staged, (Entries{{"a", StatusKind::Added}, {"d/b", StatusKind::Added}}));
 }
 
 TEST_F(StatusTest, UnstagedChangesCompareIndexWithWorktree) {
@@ -166,9 +166,9 @@ TEST_F(StatusTest, UnstagedChangesCompareIndexWithWorktree) {
   fs::remove_all(tmp.path() / "dir");
   const auto s = status();
   EXPECT_TRUE(s.staged.empty());
-  EXPECT_EQ(s.unstaged, (Entries{{"del", ChangeKind::Deleted},
-                                 {"dir/inner", ChangeKind::Deleted},
-                                 {"mod", ChangeKind::Modified}}));
+  EXPECT_EQ(s.unstaged, (Entries{{"del", StatusKind::Deleted},
+                                 {"dir/inner", StatusKind::Deleted},
+                                 {"mod", StatusKind::Modified}}));
 }
 
 TEST_F(StatusTest, SameSizeEditsAreDetectedByContent) {
@@ -176,7 +176,7 @@ TEST_F(StatusTest, SameSizeEditsAreDetectedByContent) {
   add("f");
   commit("base");
   write("f", "bbbb\n");  // no stat cache, so the content hash decides
-  EXPECT_EQ(status().unstaged, (Entries{{"f", ChangeKind::Modified}}));
+  EXPECT_EQ(status().unstaged, (Entries{{"f", StatusKind::Modified}}));
   write("f", "aaaa\n");
   EXPECT_TRUE(status().clean());
 }
@@ -187,9 +187,9 @@ TEST_F(StatusTest, ExecutableBitChangesAreModifications) {
   add("run.sh");
   commit("base");
   fs::permissions(tmp.path() / "run.sh", fs::perms::owner_exec, fs::perm_options::add);
-  EXPECT_EQ(status().unstaged, (Entries{{"run.sh", ChangeKind::Modified}}));
+  EXPECT_EQ(status().unstaged, (Entries{{"run.sh", StatusKind::Modified}}));
   add("run.sh");
-  EXPECT_EQ(status().staged, (Entries{{"run.sh", ChangeKind::Modified}}));
+  EXPECT_EQ(status().staged, (Entries{{"run.sh", StatusKind::Modified}}));
   EXPECT_TRUE(status().unstaged.empty());
 }
 
@@ -202,14 +202,14 @@ TEST_F(StatusTest, SymbolicLinksAreTypeChangesOrUntracked) {
   fs::create_symlink("d/g", tmp.path() / "f");
   fs::create_symlink(tmp.path() / "d", tmp.path() / "link");
   const auto s = status();
-  EXPECT_EQ(s.unstaged, (Entries{{"f", ChangeKind::TypeChanged}}));
+  EXPECT_EQ(s.unstaged, (Entries{{"f", StatusKind::TypeChanged}}));
   EXPECT_EQ(s.untracked, Paths{"link"});
 
   // A tracked file reached through a symbolic link is no longer in the worktree.
   fs::rename(tmp.path() / "d", tmp.path() / "real");
   fs::create_symlink("real", tmp.path() / "d");
   EXPECT_EQ(status().unstaged,
-            (Entries{{"d/g", ChangeKind::Deleted}, {"f", ChangeKind::TypeChanged}}));
+            (Entries{{"d/g", StatusKind::Deleted}, {"f", StatusKind::TypeChanged}}));
 }
 #endif
 
@@ -220,7 +220,7 @@ TEST_F(StatusTest, FileReplacedByDirectoryIsDeletedPlusUntracked) {
   fs::remove(tmp.path() / "x");
   write("x/inside", "now a dir\n");
   const auto s = status();
-  EXPECT_EQ(s.unstaged, (Entries{{"x", ChangeKind::Deleted}}));
+  EXPECT_EQ(s.unstaged, (Entries{{"x", StatusKind::Deleted}}));
   EXPECT_EQ(s.untracked, Paths{"x/"});
 }
 
@@ -247,7 +247,7 @@ TEST_F(StatusTest, StagedDeletionStillOnDiskIsUntrackedAgain) {
   index.remove("f");
   index.save();
   const auto s = status();
-  EXPECT_EQ(s.staged, (Entries{{"f", ChangeKind::Deleted}}));
+  EXPECT_EQ(s.staged, (Entries{{"f", StatusKind::Deleted}}));
   EXPECT_EQ(s.untracked, Paths{"f"});
 }
 
@@ -422,9 +422,9 @@ TEST_F(StatusScenarioTest, StagedOnly) {
   add("docs");
 
   const auto s = status();
-  EXPECT_EQ(s.staged, (Entries{{"README.md", ChangeKind::Modified},
-                               {"docs/notes.md", ChangeKind::Deleted},
-                               {"src/new.cpp", ChangeKind::Added}}));
+  EXPECT_EQ(s.staged, (Entries{{"README.md", StatusKind::Modified},
+                               {"docs/notes.md", StatusKind::Deleted},
+                               {"src/new.cpp", StatusKind::Added}}));
   EXPECT_TRUE(s.unstaged.empty());
   EXPECT_TRUE(s.untracked.empty());
   expect_short("M  README.md\nD  docs/notes.md\nA  src/new.cpp\n");
@@ -440,8 +440,8 @@ TEST_F(StatusScenarioTest, UnstagedOnly) {
 
   const auto s = status();
   EXPECT_TRUE(s.staged.empty());
-  EXPECT_EQ(s.unstaged, (Entries{{"src/app.cpp", ChangeKind::Modified},
-                                 {"src/util/strings.hpp", ChangeKind::Deleted}}));
+  EXPECT_EQ(s.unstaged, (Entries{{"src/app.cpp", StatusKind::Modified},
+                                 {"src/util/strings.hpp", StatusKind::Deleted}}));
   EXPECT_TRUE(s.untracked.empty());
   expect_short(" M src/app.cpp\n D src/util/strings.hpp\n");
 
@@ -475,12 +475,12 @@ TEST_F(StatusScenarioTest, Mixed) {
   write("scratch/tmp.txt", "u\n");   // untracked directory
 
   const auto s = status();
-  EXPECT_EQ(s.staged, (Entries{{"README.md", ChangeKind::Modified},
-                               {"docs/notes.md", ChangeKind::Deleted},
-                               {"src/added.cpp", ChangeKind::Added}}));
-  EXPECT_EQ(s.unstaged, (Entries{{"README.md", ChangeKind::Modified},
-                                 {"src/added.cpp", ChangeKind::Deleted},
-                                 {"src/app.cpp", ChangeKind::Modified}}));
+  EXPECT_EQ(s.staged, (Entries{{"README.md", StatusKind::Modified},
+                               {"docs/notes.md", StatusKind::Deleted},
+                               {"src/added.cpp", StatusKind::Added}}));
+  EXPECT_EQ(s.unstaged, (Entries{{"README.md", StatusKind::Modified},
+                                 {"src/added.cpp", StatusKind::Deleted},
+                                 {"src/app.cpp", StatusKind::Modified}}));
   EXPECT_EQ(s.untracked, (Paths{"docs/", "scratch/"}));
   expect_short(
       "MM README.md\n"

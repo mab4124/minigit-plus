@@ -26,15 +26,15 @@ std::vector<StatusEntry> diff_head_index(const std::map<std::string, IndexEntry>
   for (const auto& [path, entry] : index) {
     const auto it = head.find(path);
     if (it == head.end()) {
-      changes.push_back({path, ChangeKind::Added});
+      changes.push_back({path, StatusKind::Added});
     } else if (is_special_mode(it->second.mode) != is_special_mode(entry.mode)) {
-      changes.push_back({path, ChangeKind::TypeChanged});
+      changes.push_back({path, StatusKind::TypeChanged});
     } else if (it->second != entry) {
-      changes.push_back({path, ChangeKind::Modified});
+      changes.push_back({path, StatusKind::Modified});
     }
   }
   for (const auto& [path, entry] : head) {
-    if (index.count(path) == 0) changes.push_back({path, ChangeKind::Deleted});
+    if (index.count(path) == 0) changes.push_back({path, StatusKind::Deleted});
   }
   std::sort(changes.begin(), changes.end(),
             [](const StatusEntry& a, const StatusEntry& b) { return a.path < b.path; });
@@ -53,20 +53,20 @@ bool parent_is_not_a_directory(const fs::path& worktree, const std::string& path
   return false;
 }
 
-std::optional<ChangeKind> worktree_change(const fs::path& worktree, const std::string& path,
+std::optional<StatusKind> worktree_change(const fs::path& worktree, const std::string& path,
                                           const IndexEntry& staged) {
-  if (parent_is_not_a_directory(worktree, path)) return ChangeKind::Deleted;
+  if (parent_is_not_a_directory(worktree, path)) return StatusKind::Deleted;
   const fs::path abs = worktree / fs::path(path);
   std::error_code ec;
   const fs::file_status st = fs::symlink_status(abs, ec);
-  if (!fs::exists(st) || fs::is_directory(st)) return ChangeKind::Deleted;
-  if (!fs::is_regular_file(st)) return ChangeKind::TypeChanged;  // symlink, fifo, ...
-  if (is_special_mode(staged.mode)) return ChangeKind::TypeChanged;
-  if (hash_object(ObjectType::Blob, read_file(abs)) != staged.oid) return ChangeKind::Modified;
+  if (!fs::exists(st) || fs::is_directory(st)) return StatusKind::Deleted;
+  if (!fs::is_regular_file(st)) return StatusKind::TypeChanged;  // symlink, fifo, ...
+  if (is_special_mode(staged.mode)) return StatusKind::TypeChanged;
+  if (hash_object(ObjectType::Blob, read_file(abs)) != staged.oid) return StatusKind::Modified;
 #ifndef _WIN32
   // Windows cannot represent the executable bit, so a mode recorded
   // elsewhere is not reported as a change there.
-  if (worktree_file_mode(abs) != staged.mode) return ChangeKind::Modified;
+  if (worktree_file_mode(abs) != staged.mode) return StatusKind::Modified;
 #endif
   return std::nullopt;
 }
@@ -126,22 +126,22 @@ class UntrackedScanner {
   std::vector<std::string> untracked_;
 };
 
-std::string_view long_label(ChangeKind kind) {
+std::string_view long_label(StatusKind kind) {
   switch (kind) {
-    case ChangeKind::Added: return "new file:   ";
-    case ChangeKind::Modified: return "modified:   ";
-    case ChangeKind::Deleted: return "deleted:    ";
-    case ChangeKind::TypeChanged: return "typechange: ";
+    case StatusKind::Added: return "new file:   ";
+    case StatusKind::Modified: return "modified:   ";
+    case StatusKind::Deleted: return "deleted:    ";
+    case StatusKind::TypeChanged: return "typechange: ";
   }
   return "";
 }
 
-char short_code(ChangeKind kind) {
+char short_code(StatusKind kind) {
   switch (kind) {
-    case ChangeKind::Added: return 'A';
-    case ChangeKind::Modified: return 'M';
-    case ChangeKind::Deleted: return 'D';
-    case ChangeKind::TypeChanged: return 'T';
+    case StatusKind::Added: return 'A';
+    case StatusKind::Modified: return 'M';
+    case StatusKind::Deleted: return 'D';
+    case StatusKind::TypeChanged: return 'T';
   }
   return '?';
 }

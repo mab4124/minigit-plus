@@ -8,12 +8,14 @@
 
 namespace minigit {
 
-enum class ChangeKind { Added, Modified, Deleted, TypeChanged };
+// How a path differs in `status`. (Not history.hpp's ChangeKind, which has
+// no TypeChanged and describes commit-to-commit changes.)
+enum class StatusKind { Added, Modified, Deleted, TypeChanged };
 
 // One changed path, relative to the worktree root and '/'-separated.
 struct StatusEntry {
   std::string path;
-  ChangeKind kind;
+  StatusKind kind;
 
   bool operator==(const StatusEntry&) const = default;
 };

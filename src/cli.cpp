@@ -7,6 +7,7 @@
 #include "minigit/create_commit.hpp"
 #include "minigit/file_util.hpp"
 #include "minigit/history_api.hpp"
+#include "minigit/history_index.hpp"
 #include "minigit/log.hpp"
 #include "minigit/object_store.hpp"
 #include "minigit/refs.hpp"
@@ -274,6 +275,31 @@ std::optional<std::size_t> parse_count(std::string_view text) {
   return value;
 }
 
+int cmd_index(CommandContext& ctx) {
+  bool rebuild = false;
+  for (const auto& arg : ctx.args) {
+    if (arg == "--rebuild") {
+      rebuild = true;
+    } else {
+      ctx.err << "minigit index: unexpected argument '" << arg << "'\n"
+              << "usage: minigit index [--rebuild]\n";
+      return kExitUsage;
+    }
+  }
+
+  const Repository repo = Repository::discover(fs::current_path());
+  const fs::path db_path = HistoryIndex::default_path(repo);
+  HistoryIndex index = HistoryIndex::open_for_update(db_path, rebuild);
+  const IndexUpdate update = index.update(repo);
+  ctx.out << (rebuild ? "Rebuilt" : "Updated") << " the history index: " << update.commits_added
+          << " new commit" << (update.commits_added == 1 ? "" : "s") << ", "
+          << update.changes_added << " changed path" << (update.changes_added == 1 ? "" : "s")
+          << "; " << update.total_commits << " commit" << (update.total_commits == 1 ? "" : "s")
+          << " indexed in " << db_path.lexically_relative(repo.worktree()).generic_string()
+          << '\n';
+  return kExitOk;
+}
+
 int cmd_log(CommandContext& ctx) {
   std::optional<std::size_t> limit;
   for (std::size_t i = 0; i < ctx.args.size(); ++i) {
@@ -409,6 +435,7 @@ const std::vector<Command>& commands() {
       {"config", "Get or set user.name / user.email", cmd_config},
       {"hash-object", "Compute a blob id, optionally storing it (-w)", cmd_hash_object},
       {"help", "Show this help message", cmd_help},
+      {"index", "Build or update the file-history index (--rebuild)", cmd_index},
       {"init", "Create an empty repository", cmd_init},
       {"log", "Show the commit history of the current branch", cmd_log},
       {"serve", "Serve a read-only JSON history API on localhost", cmd_serve},

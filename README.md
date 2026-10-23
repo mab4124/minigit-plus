@@ -27,6 +27,7 @@ Currently implemented commands:
 | `minigit config <key> [<value>]`         | Get or set `user.name` / `user.email` in `.git/config` |
 | `minigit hash-object [-w] <file>`        | Compute a blob id; `-w` also stores the blob |
 | `minigit help`                           | Show the list of commands                    |
+| `minigit index [--rebuild]`              | Build or incrementally update the file-history index in `.git/minigit/history.db` |
 | `minigit init [dir]`                     | Create an empty repository                   |
 | `minigit log [-n <count>]`               | Show the current branch's history, newest first |
 | `minigit serve [--port <port>]`          | Serve a read-only JSON history API on `127.0.0.1` (default port 8080; 0 picks a free one) |
@@ -120,6 +121,19 @@ Currently implemented commands:
   authentication, so it is meant for local use only; there is no option to
   listen on other interfaces. It never writes to the repository. See
   [History API](#history-api) for the endpoints.
+- `index` stores derived data in a SQLite database, `.git/minigit/history.db`:
+  for every commit on the first-parent line of some branch, its first parent,
+  its depth and the files it changed relative to that parent (old/new mode and
+  blob id). A later `index` walks back from each branch tip only until it
+  reaches an indexed commit, and writes everything in one transaction, so an
+  interrupted run leaves the previous index intact. `--rebuild` builds a
+  fresh index next to the old one and swaps it in when complete. The index is
+  never the source of truth: it can be deleted at any time, and a file that
+  is not a MiniGit++ index (or has another schema version) is rebuilt. It is
+  not updated automatically by `commit`; tags and commits reachable only as
+  second parents of merges are not indexed. On Windows the swap after
+  `--rebuild` fails while another process (such as `serve`) has the database
+  open.
 - Annotated tag objects are not supported. Unknown commit headers (such as
   `gpgsig`) are skipped when parsing commits written by Git.
 
@@ -196,7 +210,7 @@ Requirements:
 - A C++20 compiler (GCC 11+, Clang 14+)
 - CMake 3.20+ and Ninja
 - OpenSSL (SHA-1) and zlib (object compression) development packages
-- SQLite development package (needed by a later milestone)
+- SQLite 3 development package (the file-history index)
 
 GoogleTest, [cpp-httplib](https://github.com/yhirose/cpp-httplib) and
 [nlohmann/json](https://github.com/nlohmann/json) are downloaded automatically

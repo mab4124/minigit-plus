@@ -189,8 +189,8 @@ TEST_F(CheckoutTest, KeepsChangesToPathsBothBranchesShare) {
   EXPECT_EQ(read("untracked"), "u\n");
   EXPECT_EQ(staged_paths(), (Paths{"new-staged", "other", "same"}));
   const auto s = minigit::compute_status(repo);
-  EXPECT_EQ(s.staged, (std::vector<minigit::StatusEntry>{{"new-staged", minigit::ChangeKind::Added}}));
-  EXPECT_EQ(s.unstaged, (std::vector<minigit::StatusEntry>{{"same", minigit::ChangeKind::Modified}}));
+  EXPECT_EQ(s.staged, (std::vector<minigit::StatusEntry>{{"new-staged", minigit::StatusKind::Added}}));
+  EXPECT_EQ(s.unstaged, (std::vector<minigit::StatusEntry>{{"same", minigit::StatusKind::Modified}}));
 }
 
 TEST_F(CheckoutTest, MissingTrackedFileIsRestored) {

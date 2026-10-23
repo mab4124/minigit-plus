@@ -16,6 +16,7 @@ endif()
 
 find_package(OpenSSL REQUIRED COMPONENTS Crypto)
 find_package(ZLIB REQUIRED)
+find_package(SQLite3 REQUIRED)  # the file-history index (`minigit index`)
 
 # Header-only libraries for the history API (`minigit serve`). cpp-httplib is
 # fetched with git because it publishes no release archives with a stable hash.
@@ -52,6 +53,7 @@ add_library(minigit_core
   src/hash.cpp
   src/history.cpp
   src/history_api.cpp
+  src/history_index.cpp
   src/log.cpp
   src/object_store.cpp
   src/refs.cpp
@@ -61,8 +63,8 @@ add_library(minigit_core
   src/tree.cpp
 )
 target_include_directories(minigit_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(minigit_core PRIVATE OpenSSL::Crypto ZLIB::ZLIB httplib::httplib
-                                           nlohmann_json::nlohmann_json)
+target_link_libraries(minigit_core PRIVATE OpenSSL::Crypto ZLIB::ZLIB SQLite::SQLite3
+                                           httplib::httplib nlohmann_json::nlohmann_json)
 if(MSVC)
   target_compile_options(minigit_core PRIVATE /W4)
 else()
@@ -91,6 +93,7 @@ if(MINIGIT_BUILD_TESTS)
     tests/command_tests.cpp
     tests/commit_tests.cpp
     tests/config_tests.cpp
+    tests/history_index_tests.cpp
     tests/history_tests.cpp
     tests/log_tests.cpp
     tests/object_tests.cpp
