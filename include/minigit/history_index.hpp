@@ -113,6 +113,10 @@ class HistoryIndex {
 
   HistoryIndex(Handle db, fs::path final_path, fs::path build_path);
 
+  // update() without the rebuild swap: walks, diffs and writes in one
+  // transaction. Its statements are finalized before it returns.
+  void write_new_commits(const Repository& repo, IndexUpdate& result);
+
   Handle db_;
   // For a rebuild, update() builds the database at build_path_ and then
   // renames it to final_path_. Both are empty otherwise.

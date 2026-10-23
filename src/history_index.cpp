@@ -179,7 +179,9 @@ ChangeKind parse_kind(const std::optional<std::string>& status) {
 
 }  // namespace
 
-void HistoryIndex::Closer::operator()(sqlite3* db) const { sqlite3_close(db); }
+// close_v2 still releases the connection if a statement is somehow left
+// open, instead of failing with SQLITE_BUSY and leaking it.
+void HistoryIndex::Closer::operator()(sqlite3* db) const { sqlite3_close_v2(db); }
 
 fs::path HistoryIndex::default_path(const Repository& repo) {
   return repo.minigit_dir() / "history.db";
@@ -305,6 +307,29 @@ std::optional<std::vector<FileHistoryEntry>> HistoryIndex::file_history(
 }
 
 IndexUpdate HistoryIndex::update(const Repository& repo) {
+  IndexUpdate result;
+  write_new_commits(repo, result);
+
+  if (!build_path_.empty()) {
+    // The rebuilt index is complete (and no statement is open on it any
+    // more): move it into place and keep using it.
+    db_.reset();
+    std::error_code ec;
+    fs::rename(build_path_, final_path_, ec);
+    if (ec) {
+      remove_quietly(build_path_);
+      build_path_.clear();
+      throw HistoryIndexError("cannot replace " + final_path_.generic_string() + ": " +
+                              ec.message());
+    }
+    build_path_.clear();
+    db_.reset(open_db(final_path_, SQLITE_OPEN_READWRITE));
+  }
+  result.total_commits = commit_count();
+  return result;
+}
+
+void HistoryIndex::write_new_commits(const Repository& repo, IndexUpdate& result) {
   const ObjectStore store(repo.objects_dir());
   sqlite3* db = db_.get();
   Statement find(db, "SELECT depth FROM commits WHERE oid = ?1");
@@ -369,7 +394,6 @@ IndexUpdate HistoryIndex::update(const Repository& repo) {
     }
   }
 
-  IndexUpdate result;
   exec(db, "BEGIN IMMEDIATE");
   try {
     Statement add_commit(db, "INSERT INTO commits (oid, parent, depth) VALUES (?1, ?2, ?3)");
@@ -399,23 +423,6 @@ IndexUpdate HistoryIndex::update(const Repository& repo) {
     sqlite3_exec(db, "ROLLBACK", nullptr, nullptr, nullptr);
     throw;
   }
-
-  if (!build_path_.empty()) {
-    // The rebuilt index is complete: move it into place and keep using it.
-    db_.reset();
-    std::error_code ec;
-    fs::rename(build_path_, final_path_, ec);
-    if (ec) {
-      remove_quietly(build_path_);
-      build_path_.clear();
-      throw HistoryIndexError("cannot replace " + final_path_.generic_string() + ": " +
-                              ec.message());
-    }
-    build_path_.clear();
-    db_.reset(open_db(final_path_, SQLITE_OPEN_READWRITE));
-  }
-  result.total_commits = commit_count();
-  return result;
 }
 
 std::vector<FileHistoryEntry> file_history_with_index(const fs::path& db_path,
