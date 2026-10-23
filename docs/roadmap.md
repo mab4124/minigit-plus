@@ -66,5 +66,5 @@ Rules for every commit:
 
 - [x] SQLite index (`.git/minigit/history.db`): commits and changed paths with old/new blob ids; `minigit index [--rebuild]`, incremental
 - [x] File-history API uses the index when present and fresh, falls back to traversal otherwise; equivalence tests
-- [ ] `benchmarks/history_benchmark.cpp` on generated repositories; results in `docs/experiment-results.md`
+- [x] `benchmarks/history_benchmark.cpp` on generated repositories; results in `docs/experiment-results.md`
 - [ ] `.github/workflows/nightly.yml` (`30 18 * * *` + `workflow_dispatch`): long tests, generated repos, perf smoke test, artifact upload; `docs/architecture.md`

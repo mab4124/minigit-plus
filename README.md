@@ -254,6 +254,23 @@ incompatible DLLs and fail without an error message.
 cmake -S . -B build-asan -G Ninja -DMINIGIT_SANITIZE=ON
 ```
 
+## Benchmark
+
+`benchmarks/history_benchmark.cpp` generates a repository with the MiniGit++
+library, then compares file-history queries by traversal with queries through
+the index, before and after new commits, and checks a deleted-and-rebuilt
+index against traversal. It prints Markdown tables; use a Release build:
+
+```sh
+cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build-release
+./build-release/history_benchmark --commits 5000 --files 200 --repeats 5
+```
+
+Measured results and what they mean are in
+[`docs/experiment-results.md`](docs/experiment-results.md). A tiny run
+(`history_benchmark_smoke`) is part of `ctest`.
+
 ## Exit codes
 
 | Code | Meaning                                 |

@@ -7,6 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(MINIGIT_BUILD_TESTS "Build the GoogleTest suite" ON)
+option(MINIGIT_BUILD_BENCHMARKS "Build benchmarks/history_benchmark" ON)
 option(MINIGIT_SANITIZE "Build with AddressSanitizer and UBSan (GCC/Clang)" OFF)
 
 if(MINIGIT_SANITIZE AND NOT MSVC)
@@ -74,6 +75,11 @@ endif()
 add_executable(minigit src/main.cpp)
 target_link_libraries(minigit PRIVATE minigit_core)
 
+if(MINIGIT_BUILD_BENCHMARKS)
+  add_executable(history_benchmark benchmarks/history_benchmark.cpp)
+  target_link_libraries(history_benchmark PRIVATE minigit_core)
+endif()
+
 if(MINIGIT_BUILD_TESTS)
   FetchContent_Declare(
     googletest
@@ -111,4 +117,9 @@ if(MINIGIT_BUILD_TESTS)
   add_dependencies(minigit_tests minigit)
   include(GoogleTest)
   gtest_discover_tests(minigit_tests DISCOVERY_TIMEOUT 30)
+  if(MINIGIT_BUILD_BENCHMARKS)
+    # A tiny run keeps the benchmark compiling and its self-checks passing.
+    add_test(NAME history_benchmark_smoke
+             COMMAND history_benchmark --commits 60 --files 20 --repeats 1)
+  endif()
 endif()
